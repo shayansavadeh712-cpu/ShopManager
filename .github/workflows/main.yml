@@ -1,0 +1,55 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Locate Gradle project
+        id: locate
+        run: |
+          echo "--- repo tree ---"
+          find . -maxdepth 3 -not -path './.git/*' | head -60
+          F=$(find . -maxdepth 4 \( -name settings.gradle.kts -o -name settings.gradle \) -not -path './.git/*' | head -n1)
+          if [ -z "$F" ]; then
+            echo "::error::settings.gradle.kts در ریپو پیدا نشد. فایل‌های پروژه آپلود نشدن."
+            exit 1
+          fi
+          DIR=$(dirname "$F")
+          echo "Gradle project dir: $DIR"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Download Persian font (Vazirmatn)
+        working-directory: ${{ steps.locate.outputs.dir }}
+        run: |
+          mkdir -p app/src/main/assets/fonts
+          for w in Regular Bold; do
+            curl -fsSL -o app/src/main/assets/fonts/Vazirmatn-$w.ttf \
+              https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/ttf/Vazirmatn-$w.ttf \
+              || rm -f app/src/main/assets/fonts/Vazirmatn-$w.ttf
+          done
+          ls -la app/src/main/assets/fonts || true
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Build debug APK
+        working-directory: ${{ steps.locate.outputs.dir }}
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ShopManager-APK
+          path: ${{ steps.locate.outputs.dir }}/app/build/outputs/apk/debug/*.apk
