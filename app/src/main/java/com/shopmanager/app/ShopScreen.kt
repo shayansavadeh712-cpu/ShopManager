@@ -998,7 +998,7 @@ private fun ShopSettingsTab(w: WooState) {
             Text(w.siteUrl.removePrefix("https://"), fontWeight = FontWeight.Bold)
         }
         Field(cur, { cur = it }, "واحد پول")
-        FilledTonalButton(onClick = { w.setCurrency(cur); w.message = "ذخیره شد" }) { Text("ذخیرهٔ واحد پول") }
+        FilledTonalButton(onClick = { w.saveCurrency(cur); w.message = "ذخیره شد" }) { Text("ذخیرهٔ واحد پول") }
         FilledTonalButton(onClick = { w.refreshAll() }) {
             Icon(Icons.Rounded.Refresh, null, Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
