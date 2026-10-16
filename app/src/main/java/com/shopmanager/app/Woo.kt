@@ -75,7 +75,21 @@ object Vault {
 
 // ───────────────────────── مدل‌ها ─────────────────────────
 
-data class WCat(val id: Long, val name: String, val count: Int = 0)
+data class WCat(
+    val id: Long,
+    val name: String,
+    val count: Int = 0,
+    val parent: Long = 0,
+    val description: String = ""
+)
+
+data class WAttr(
+    val id: Long = 0,
+    val name: String = "",
+    val options: List<String> = emptyList(),
+    val variation: Boolean = true,
+    val visible: Boolean = true
+)
 
 data class WProduct(
     val id: Long = 0,
@@ -98,7 +112,8 @@ data class WProduct(
     val featured: Boolean = false,
     val weight: String = "",
     val permalink: String = "",
-    val totalSales: Int = 0
+    val totalSales: Int = 0,
+    val attrs: List<WAttr> = emptyList()
 ) {
     val priceEditable: Boolean get() = type == "simple" || type == "external"
 }
@@ -142,6 +157,23 @@ fun parseProduct(o: JSONObject): WProduct {
     }
     val imgs = o.optJSONArray("images")
     val img = if (imgs != null && imgs.length() > 0) imgs.getJSONObject(0).str("src") else ""
+    val atArr = o.optJSONArray("attributes") ?: JSONArray()
+    val attrList = ArrayList<WAttr>()
+    for (i in 0 until atArr.length()) {
+        val a = atArr.getJSONObject(i)
+        val opts = ArrayList<String>()
+        val oa = a.optJSONArray("options") ?: JSONArray()
+        for (j in 0 until oa.length()) opts.add(clean(oa.optString(j)))
+        attrList.add(
+            WAttr(
+                id = a.optLong("id"),
+                name = clean(a.str("name")),
+                options = opts,
+                variation = a.optBoolean("variation", false),
+                visible = a.optBoolean("visible", true)
+            )
+        )
+    }
     return WProduct(
         id = o.optLong("id"),
         name = clean(o.str("name")),
@@ -163,8 +195,26 @@ fun parseProduct(o: JSONObject): WProduct {
         featured = o.optBoolean("featured", false),
         weight = o.str("weight"),
         permalink = o.str("permalink"),
-        totalSales = o.optInt("total_sales", 0)
+        totalSales = o.optInt("total_sales", 0),
+        attrs = attrList
     )
+}
+
+fun attrsToJson(list: List<WAttr>): JSONArray {
+    val arr = JSONArray()
+    list.forEachIndexed { i, a ->
+        val x = JSONObject()
+        if (a.id > 0) x.put("id", a.id)
+        x.put("name", a.name)
+        x.put("position", i)
+        x.put("visible", a.visible)
+        x.put("variation", a.variation)
+        val opts = JSONArray()
+        a.options.forEach { opts.put(it) }
+        x.put("options", opts)
+        arr.put(x)
+    }
+    return arr
 }
 
 fun WProduct.toJson(isNew: Boolean, imageChanged: Boolean): JSONObject {
@@ -186,7 +236,8 @@ fun WProduct.toJson(isNew: Boolean, imageChanged: Boolean): JSONObject {
     val arr = JSONArray()
     catIds.forEach { arr.put(JSONObject().put("id", it)) }
     o.put("categories", arr)
-    if (isNew) o.put("type", "simple")
+    if (isNew) o.put("type", if (type == "variable") "variable" else "simple")
+    if (type == "variable" && attrs.isNotEmpty()) o.put("attributes", attrsToJson(attrs))
     if (imageChanged) {
         val imgs = JSONArray()
         if (image.isNotBlank()) imgs.put(JSONObject().put("src", image))
@@ -521,6 +572,8 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
     var sort by mutableIntStateOf(0)
     val selected = mutableStateListOf<Long>()
     val categories = mutableStateListOf<WCat>()
+    val api: WooClient? get() = cl
+    val mg = ManageState(ctx, scope, this)
 
     var busy by mutableStateOf<String?>(null)
     var message by mutableStateOf<String?>(null)
@@ -604,6 +657,7 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         orders.clear()
         categories.clear()
         selected.clear()
+        mg.clear()
         stats = null
         undoList = emptyList()
     }
@@ -680,7 +734,7 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
                     val list = ArrayList<WCat>()
                     for (i in 0 until arr.length()) {
                         val o = arr.getJSONObject(i)
-                        list.add(WCat(o.optLong("id"), clean(o.str("name")), o.optInt("count")))
+                        list.add(WCat(o.optLong("id"), clean(o.str("name")), o.optInt("count"), o.optLong("parent"), clean(o.str("description"))))
                     }
                     categories.clear()
                     categories.addAll(list)

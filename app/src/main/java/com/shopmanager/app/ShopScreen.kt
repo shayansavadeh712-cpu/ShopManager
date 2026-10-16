@@ -160,7 +160,7 @@ fun RemoteImage(url: String, modifier: Modifier = Modifier, target: Int = 240) {
 // ───────────────────────── ابزارهای مشترک ─────────────────────────
 
 @Composable
-private fun <T> Choices(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+internal fun <T> Choices(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
     Row(
         Modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -172,7 +172,7 @@ private fun <T> Choices(options: List<Pair<T, String>>, selected: T, onSelect: (
 }
 
 @Composable
-private fun Field(
+internal fun Field(
     value: String,
     onChange: (String) -> Unit,
     label: String,
@@ -192,7 +192,7 @@ private fun Field(
 }
 
 @Composable
-private fun PrimaryButton(text: String, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun PrimaryButton(text: String, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val s = LocalSettings.current
     Button(
         onClick = onClick, enabled = enabled,
@@ -274,7 +274,10 @@ private fun ShopMain(w: WooState, onEdit: (WProduct) -> Unit, onBulk: () -> Unit
         Spacer(Modifier.height(8.dp))
         Box(Modifier.padding(horizontal = 16.dp)) {
             Choices(
-                listOf(0 to "داشبورد", 1 to "محصولات", 2 to "سفارش‌ها", 3 to "اتصال"),
+                listOf(
+                    0 to "داشبورد", 1 to "محصولات", 4 to "دسته‌ها", 2 to "سفارش‌ها",
+                    5 to "مشتریان", 6 to "مقاله‌ها", 3 to "اتصال"
+                ),
                 w.shopTab
             ) { w.shopTab = it }
         }
@@ -283,6 +286,9 @@ private fun ShopMain(w: WooState, onEdit: (WProduct) -> Unit, onBulk: () -> Unit
             0 -> DashboardTab(w, onNew = { onEdit(WProduct()) })
             1 -> ProductsTab(w, onEdit, onBulk)
             2 -> OrdersTab(w)
+            4 -> CategoriesTab(w)
+            5 -> CustomersTab(w)
+            6 -> PostsTab(w)
             else -> ShopSettingsTab(w)
         }
     }
@@ -482,6 +488,11 @@ private fun ProductsTab(w: WooState, onEdit: (WProduct) -> Unit, onBulk: () -> U
                         }
                         Text("${fa(w.total)} محصول", color = cs.onSurfaceVariant, fontSize = 12.sp)
                     }
+                    if (!selMode) {
+                        TextButton(onClick = { w.products.forEach { if (!sel.contains(it.id)) sel.add(it.id) } }) {
+                            Text("انتخاب همه / ویرایش گروهی (یا نگه‌داشتن روی یک محصول)", fontSize = 12.sp)
+                        }
+                    }
                 }
             }
             if (w.error != null) {
@@ -619,6 +630,8 @@ private fun ProductEditor(w: WooState, initial: WProduct, onDismiss: () -> Unit)
     var shortD by remember { mutableStateOf(initial.shortDescription) }
     var desc by remember { mutableStateOf(initial.description) }
     var image by remember { mutableStateOf(initial.image) }
+    var type by remember { mutableStateOf(initial.type) }
+    val attrs = remember { mutableStateListOf<AttrRow>().also { l -> l.addAll(initial.attrs.map { it.toRow() }) } }
     var confirmDelete by remember { mutableStateOf(false) }
 
     fun build(): WProduct = initial.copy(
@@ -626,7 +639,9 @@ private fun ProductEditor(w: WooState, initial: WProduct, onDismiss: () -> Unit)
         regularPrice = en(regular).trim(), salePrice = en(sale).trim(),
         manageStock = manage, stockQty = if (manage) (en(qty).toIntOrNull() ?: 0) else null,
         stockStatus = stock, catIds = cats.toList(), featured = featured,
-        weight = en(weight).trim(), shortDescription = shortD, description = desc, image = image.trim()
+        weight = en(weight).trim(), shortDescription = shortD, description = desc, image = image.trim(),
+        type = type,
+        attrs = attrs.map { it.toAttr() }.filter { it.name.isNotBlank() && it.options.isNotEmpty() }
     )
 
     ModalBottomSheet(
@@ -671,13 +686,28 @@ private fun ProductEditor(w: WooState, initial: WProduct, onDismiss: () -> Unit)
                 status
             ) { status = it }
             Field(sku, { sku = it }, "SKU (شناسه محصول)")
-            if (initial.priceEditable) {
+            if (isNew) {
+                Text("نوع محصول", fontWeight = FontWeight.Medium)
+                Choices(listOf("simple" to "ساده", "variable" to "متغیر (رنگ، سایز...)"), type) { type = it }
+            }
+            if (if (isNew) type == "simple" else initial.priceEditable) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Field(regular, { regular = it }, "قیمت اصلی", Modifier.weight(1f), number = true)
                     Field(sale, { sale = it }, "قیمت حراج", Modifier.weight(1f), number = true)
                 }
             } else {
                 Text("قیمت این محصول (متغیر/گروهی) از تنوع‌ها تعیین می‌شود.", color = cs.onSurfaceVariant, fontSize = 13.sp)
+            }
+            if (type == "variable") {
+                AttrsEditor(attrs)
+                if (isNew) {
+                    Text(
+                        "بعد از «ساخت محصول»، دوباره روی محصول بزن تا تنوع‌ها (ترکیب رنگ و سایز) را بسازی.",
+                        color = cs.onSurfaceVariant, fontSize = 12.sp
+                    )
+                } else {
+                    VariationsSection(w, initial, attrs.map { it.toAttr() }.filter { it.name.isNotBlank() && it.options.isNotEmpty() })
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("مدیریت تعداد موجودی", Modifier.weight(1f))
