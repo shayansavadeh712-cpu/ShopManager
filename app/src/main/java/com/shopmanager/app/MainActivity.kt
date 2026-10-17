@@ -24,8 +24,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Storefront
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -68,7 +71,11 @@ fun AppRoot(vm: AppViewModel) {
 }
 
 private val tabs = listOf(
-    Icons.Rounded.Storefront to "فروشگاه",
+    Icons.Rounded.Dashboard to "خانه",
+    Icons.Rounded.Inventory2 to "محصولات",
+    Icons.Rounded.Category to "دسته‌ها",
+    Icons.Rounded.ReceiptLong to "سفارش",
+    Icons.Rounded.People to "مشتری",
     Icons.Rounded.Settings to "تنظیمات"
 )
 
@@ -77,16 +84,16 @@ fun FloatingBar(sel: Int, onSel: (Int) -> Unit, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(24.dp)
     Row(
-        modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth().height(64.dp)
+        modifier.padding(horizontal = 12.dp, vertical = 10.dp).fillMaxWidth().height(62.dp)
             .shadow(16.dp, shape).clip(shape)
-            .background(cs.surface.copy(alpha = .96f))
+            .background(cs.surface.copy(alpha = .97f))
             .border(1.dp, cs.outlineVariant, shape)
-            .padding(6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+            .padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         tabs.forEachIndexed { i, (icon, label) ->
             val on = i == sel
-            val w by animateFloatAsState(if (on) 1.6f else 1f, label = "w")
+            val w by animateFloatAsState(if (on) 1.9f else 1f, label = "w")
             Box(
                 Modifier.weight(w).fillMaxHeight().clip(RoundedCornerShape(18.dp))
                     .then(if (on) Modifier.background(accentBrush()) else Modifier)
@@ -94,9 +101,9 @@ fun FloatingBar(sel: Int, onSel: (Int) -> Unit, modifier: Modifier = Modifier) {
                 contentAlignment = androidx.compose.ui.Alignment.Center
             ) {
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Icon(icon, null, tint = if (on) cs.onPrimary else cs.onSurfaceVariant)
+                    Icon(icon, null, Modifier.size(22.dp), tint = if (on) cs.onPrimary else cs.onSurfaceVariant)
                     AnimatedVisibility(visible = on) {
-                        Text(" $label", color = cs.onPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
+                        Text(" $label", color = cs.onPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
                     }
                 }
             }
@@ -106,16 +113,70 @@ fun FloatingBar(sel: Int, onSel: (Int) -> Unit, modifier: Modifier = Modifier) {
 
 @Composable
 fun Shell(vm: AppViewModel) {
-    var tab by remember { mutableIntStateOf(0) }
-    BackHandler(enabled = tab != 0) { tab = 0 }
+    val woo = vm.woo
+    val cs = MaterialTheme.colorScheme
+    BackHandler(enabled = woo.tab != 0) { woo.tab = 0 }
+    LaunchedEffect(woo.connected) { if (woo.connected) woo.bootstrap() }
+    LaunchedEffect(woo.message) {
+        if (woo.message != null) {
+            delay(4000)
+            woo.message = null
+        }
+    }
     Box(Modifier.fillMaxSize()) {
-        Crossfade(targetState = tab, modifier = Modifier.fillMaxSize().statusBarsPadding(), label = "screen") { t ->
-            if (t == 0) ShopScreen(vm) else SettingsScreen(vm)
+        Crossfade(targetState = woo.tab, modifier = Modifier.fillMaxSize().statusBarsPadding(), label = "screen") { t ->
+            if (t == 5) SettingsScreen(vm)
+            else if (!woo.connected) ConnectScreen(woo)
+            else when (t) {
+                0 -> DashboardTab(woo)
+                1 -> ProductsTab(woo)
+                2 -> CategoriesTab(woo)
+                3 -> OrdersTab(woo)
+                else -> CustomersTab(woo)
+            }
+        }
+        Column(
+            Modifier.align(androidx.compose.ui.Alignment.TopCenter).statusBarsPadding().padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            woo.busy?.let { b ->
+                BannerBox {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(b, fontSize = 13.sp)
+                }
+            }
+            woo.message?.let { m ->
+                BannerBox(onClick = { woo.message = null }) { Text(m, fontSize = 13.sp, modifier = Modifier.weight(1f)) }
+            }
+            if (woo.undoList.isNotEmpty() && woo.busy == null) {
+                BannerBox {
+                    Text("تغییرات اعمال شد", fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    Text(
+                        "بازگردانی", color = cs.primary, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp,
+                        modifier = Modifier.clickable { woo.undo() }.padding(6.dp)
+                    )
+                }
+            }
         }
         FloatingBar(
-            sel = tab,
-            onSel = { tab = it },
+            sel = woo.tab,
+            onSel = { woo.tab = it },
             modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter).navigationBarsPadding()
         )
     }
+}
+
+@Composable
+private fun BannerBox(onClick: (() -> Unit)? = null, content: @Composable RowScope.() -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        Modifier.fillMaxWidth().shadow(10.dp, shape).clip(shape)
+            .background(cs.surfaceVariant).border(1.dp, cs.primary.copy(alpha = .4f), shape)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        content = content
+    )
 }

@@ -90,6 +90,12 @@ fun SettingsScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     var pwDialog by remember { mutableStateOf(false) }
     var logoutDialog by remember { mutableStateOf(false) }
+    val woo = vm.woo
+    var disconnectDialog by remember { mutableStateOf(false) }
+    var shopName by remember(woo.shopName) { mutableStateOf(woo.shopName) }
+    var shopPhone by remember(woo.shopPhone) { mutableStateOf(woo.shopPhone) }
+    var shopAddr by remember(woo.shopAddr) { mutableStateOf(woo.shopAddr) }
+    var cur by remember(woo.currency) { mutableStateOf(woo.currency) }
 
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 130.dp),
@@ -127,6 +133,29 @@ fun SettingsScreen(vm: AppViewModel) {
                         Icon(Icons.AutoMirrored.Rounded.Logout, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("خروج", color = Color.White)
+                    }
+                }
+            }
+        }
+        if (woo.connected) {
+            item {
+                AppCard {
+                    SectionTitle("فروشگاه و فاکتور")
+                    Text(woo.siteUrl.removePrefix("https://"), color = cs.onSurfaceVariant, fontSize = 13.sp)
+                    Spacer(Modifier.height(10.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Field(shopName, { shopName = it }, "نام فروشگاه (روی فاکتور)")
+                        Field(shopPhone, { shopPhone = it }, "تلفن")
+                        Field(shopAddr, { shopAddr = it }, "آدرس", singleLine = false, minLines = 2)
+                        Field(cur, { cur = it }, "واحد پول")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ActionButton("ذخیره", {
+                                woo.saveShopInfo(shopName, shopPhone, shopAddr)
+                                woo.setCurrency(cur)
+                                Toast.makeText(ctx, "ذخیره شد", Toast.LENGTH_SHORT).show()
+                            }, Modifier.weight(1f))
+                            ActionButton("قطع اتصال", { disconnectDialog = true }, kind = BtnKind.DANGER)
+                        }
                     }
                 }
             }
@@ -186,6 +215,15 @@ fun SettingsScreen(vm: AppViewModel) {
         }
     }
 
+    if (disconnectDialog) {
+        ConfirmDialog(
+            title = "قطع اتصال فروشگاه؟",
+            text = "کلیدها از روی این گوشی پاک می‌شوند.",
+            confirmText = "قطع اتصال", danger = true,
+            onConfirm = { disconnectDialog = false; woo.disconnect() },
+            onDismiss = { disconnectDialog = false }
+        )
+    }
     if (logoutDialog) {
         AlertDialog(
             onDismissRequest = { logoutDialog = false },
