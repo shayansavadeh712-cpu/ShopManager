@@ -52,6 +52,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        Notifier.setup(this)
         setContent {
             CompositionLocalProvider(LocalSettings provides vm.settings) {
                 AppTheme(vm.settings) { AppRoot(vm) }

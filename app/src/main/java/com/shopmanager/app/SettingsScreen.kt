@@ -140,6 +140,7 @@ fun SettingsScreen(vm: AppViewModel) {
             }
         }
         if (woo.connected) {
+            item { NotificationsCard() }
             item {
                 AppCard {
                     SectionTitle("فروشگاه و فاکتور")

@@ -184,17 +184,27 @@ fun CategoriesTab(woo: WooState) {
     var q by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<WCat?>(null) }
     var creating by remember { mutableStateOf(false) }
-    val list = if (q.isBlank()) woo.categories else woo.categories.filter { it.name.contains(q.trim(), true) }
+    var mode by remember { mutableStateOf(0) }
+    val isBrand = mode == 1
+    LaunchedEffect(mode) { if (isBrand) woo.loadBrands() }
+    val src = if (isBrand) woo.brands.toList() else woo.categories.toList()
+    val list = if (q.isBlank()) src else src.filter { it.name.contains(q.trim(), true) }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        ScreenHeader("دسته‌ها", "${fa(woo.categories.size)} دسته") { IconBox(Icons.Rounded.Add, filled = true) { creating = true } }
-        SearchField(q, { q = it }, "جستجوی دسته...")
-        if (list.isEmpty()) EmptyState("دسته‌ای پیدا نشد")
+        ScreenHeader(
+            if (isBrand) "برندها" else "دسته‌ها",
+            if (isBrand) "${fa(woo.brands.size)} برند" else "${fa(woo.categories.size)} دسته"
+        ) { IconBox(Icons.Rounded.Add, filled = true) { creating = true } }
+        Choices(listOf(0 to "دسته‌ها", 1 to "برندها"), mode) { mode = it; q = "" }
+        SearchField(q, { q = it }, if (isBrand) "جستجوی برند..." else "جستجوی دسته...")
+        if (isBrand && !woo.brandsSupported) {
+            EmptyState("برندها در این سایت فعال نیست. ووکامرس نسخهٔ ۹٫۶ به بالا یا فعال‌سازی ویژگی برندها لازم است.")
+        } else if (list.isEmpty()) EmptyState(if (isBrand) "برندی پیدا نشد" else "دسته‌ای پیدا نشد")
         LazyColumn(contentPadding = PaddingValues(bottom = 130.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(list, key = { it.id }) { c ->
                 AppCard(
-                    Modifier.padding(start = if (q.isBlank()) (c.depth * 18).dp else 0.dp),
-                    onClick = { woo.openCategory(c.id) }, pad = 10.dp
+                    Modifier.padding(start = if (q.isBlank() && !isBrand) (c.depth * 18).dp else 0.dp),
+                    onClick = { if (isBrand) editing = c else woo.openCategory(c.id) }, pad = 10.dp
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))) {
@@ -205,10 +215,12 @@ fun CategoriesTab(woo: WooState) {
                             Text(c.name, fontWeight = FontWeight.Bold)
                             Text("${fa(c.count)} محصول", fontSize = 12.sp, color = cs.onSurfaceVariant)
                         }
-                        IconBox(Icons.Rounded.DoneAll) {
-                            woo.selectInCategory(c.id) { woo.tab = 1 }
+                        if (!isBrand) {
+                            IconBox(Icons.Rounded.DoneAll) {
+                                woo.selectInCategory(c.id) { woo.tab = 1 }
+                            }
+                            Spacer(Modifier.width(6.dp))
                         }
-                        Spacer(Modifier.width(6.dp))
                         IconBox(Icons.Rounded.Edit) { editing = c }
                     }
                 }
@@ -216,26 +228,29 @@ fun CategoriesTab(woo: WooState) {
         }
     }
 
-    if (creating) CategoryEditor(woo, null) { creating = false }
-    editing?.let { CategoryEditor(woo, it) { editing = null } }
+    if (creating) CategoryEditor(woo, null, isBrand) { creating = false }
+    editing?.let { CategoryEditor(woo, it, isBrand) { editing = null } }
 }
 
 @Composable
-private fun CategoryEditor(woo: WooState, cat: WCat?, onClose: () -> Unit) {
+private fun CategoryEditor(woo: WooState, cat: WCat?, isBrand: Boolean, onClose: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     var name by remember { mutableStateOf(cat?.name ?: "") }
     var parent by remember { mutableStateOf(cat?.parent ?: 0L) }
     var confirmSave by remember { mutableStateOf(false) }
     var confirmDel by remember { mutableStateOf(false) }
 
-    AppSheet(onClose, if (cat == null) "دستهٔ جدید" else "ویرایش دسته") {
-        Field(name, { name = it }, "نام دسته")
-        Text("دستهٔ والد (اختیاری)", fontWeight = FontWeight.SemiBold)
-        CategoryPicker(
-            woo.categories.filter { it.id != cat?.id },
-            if (parent == 0L) emptyList() else listOf(parent),
-            { parent = it.firstOrNull() ?: 0L }, single = true
-        )
+    val noun = if (isBrand) "برند" else "دسته"
+    AppSheet(onClose, if (cat == null) "$noun جدید" else "ویرایش $noun") {
+        Field(name, { name = it }, "نام $noun")
+        if (!isBrand) {
+            Text("دستهٔ والد (اختیاری)", fontWeight = FontWeight.SemiBold)
+            CategoryPicker(
+                woo.categories.filter { it.id != cat?.id },
+                if (parent == 0L) emptyList() else listOf(parent),
+                { parent = it.firstOrNull() ?: 0L }, single = true
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (cat != null) ActionButton("حذف", { confirmDel = true }, kind = BtnKind.DANGER, icon = Icons.Rounded.DeleteForever)
             ActionButton("ذخیره", { confirmSave = true }, Modifier.weight(1f), icon = Icons.Rounded.Check, enabled = name.isNotBlank())
@@ -243,23 +258,25 @@ private fun CategoryEditor(woo: WooState, cat: WCat?, onClose: () -> Unit) {
     }
     if (confirmSave) {
         ConfirmDialog(
-            title = if (cat == null) "ساخت دسته؟" else "ذخیرهٔ تغییرات دسته؟",
+            title = if (cat == null) "ساخت $noun؟" else "ذخیرهٔ تغییرات $noun؟",
             text = "نام: ${name.trim()}",
             onConfirm = {
                 confirmSave = false
-                woo.saveCategory(cat?.id ?: 0L, name.trim(), parent) { onClose() }
+                if (isBrand) woo.saveBrand(cat?.id ?: 0L, name.trim()) { onClose() }
+                else woo.saveCategory(cat?.id ?: 0L, name.trim(), parent) { onClose() }
             },
             onDismiss = { confirmSave = false }
         )
     }
     if (confirmDel && cat != null) {
         ConfirmDialog(
-            title = "حذف دستهٔ «${cat.name}»؟",
+            title = "حذف $noun «${cat.name}»؟",
             text = "محصولات حذف نمی‌شوند، فقط از این دسته خارج می‌شوند.",
             confirmText = "حذف", danger = true,
             onConfirm = {
                 confirmDel = false
-                woo.deleteCategory(cat.id) { onClose() }
+                if (isBrand) woo.deleteBrand(cat.id) { onClose() }
+                else woo.deleteCategory(cat.id) { onClose() }
             },
             onDismiss = { confirmDel = false }
         )

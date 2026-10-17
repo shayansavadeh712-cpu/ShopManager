@@ -45,6 +45,15 @@ private fun num(s: String): Double? = en(s).trim().toDoubleOrNull()
 private fun splitOpts(s: String): List<String> =
     s.split(',', '،', '\n').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
 
+private fun parseAttrs(s: String): List<Pair<String, String>> = splitOpts(s).mapNotNull { t ->
+    val i = t.indexOfFirst { it == '=' || it == ':' }
+    if (i <= 0) null else {
+        val n = t.substring(0, i).trim()
+        val v = t.substring(i + 1).trim()
+        if (n.isEmpty() || v.isEmpty()) null else n to v
+    }
+}
+
 private fun comboCount(attrs: List<Pair<String, List<String>>>): Int =
     if (attrs.isEmpty()) 0 else attrs.fold(1) { a, p -> a * p.second.size }
 
@@ -56,6 +65,7 @@ fun ProductsTab(woo: WooState) {
     val cs = MaterialTheme.colorScheme
     var editing by remember { mutableStateOf<WProduct?>(null) }
     var creating by remember { mutableStateOf(false) }
+    var createType by remember { mutableStateOf("simple") }
     var showFilters by remember { mutableStateOf(false) }
     var showBulk by remember { mutableStateOf(false) }
     var showVars by remember { mutableStateOf<WProduct?>(null) }
@@ -78,7 +88,8 @@ fun ProductsTab(woo: WooState) {
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 IconBox(if (woo.viewGrid) Icons.Rounded.ViewList else Icons.Rounded.GridView) { woo.viewGrid = !woo.viewGrid }
-                IconBox(Icons.Rounded.Add, filled = true) { creating = true }
+                ActionButton("متغیر", { createType = "variable"; creating = true }, icon = Icons.Rounded.Layers, kind = BtnKind.TONAL)
+                IconBox(Icons.Rounded.Add, filled = true) { createType = "simple"; creating = true }
             }
         }
         SearchField(woo.query, { woo.query = it }, "جستجوی نام، SKU یا توضیحات...") { woo.loadProducts(true) }
@@ -86,7 +97,7 @@ fun ProductsTab(woo: WooState) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1f)) {
                 Choices(
-                    listOf("any" to "همه", "publish" to "منتشر شده", "draft" to "پیش‌نویس", "pending" to "در انتظار", "private" to "خصوصی"),
+                    listOf("any" to "همه", "publish" to "منتشر شده", "future" to "زمان‌بندی‌شده", "draft" to "پیش‌نویس", "pending" to "در انتظار", "private" to "خصوصی"),
                     woo.statusF
                 ) { woo.statusF = it; woo.loadProducts(true) }
             }
@@ -100,6 +111,11 @@ fun ProductsTab(woo: WooState) {
                 }
             }
         }
+
+        Choices(
+            listOf("" to "همه انواع", "variable" to "فقط متغیرها", "simple" to "فقط ساده"),
+            woo.typeF
+        ) { woo.typeF = it; woo.loadProducts(true) }
 
         if (selMode) {
             AppCard(pad = 10.dp) {
@@ -161,7 +177,7 @@ fun ProductsTab(woo: WooState) {
         }
     }
 
-    if (creating) ProductEditor(woo, null, onVariations = { }) { creating = false }
+    if (creating) ProductEditor(woo, null, startType = createType, onVariations = { }) { creating = false }
     editing?.let { p ->
         ProductEditor(woo, p, onVariations = { showVars = it }) { editing = null }
     }
@@ -240,7 +256,8 @@ fun ProductRow(p: WProduct, currency: String, selected: Boolean, onClick: () -> 
             PriceLine(p, currency)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 StockPill(p)
-                if (p.status != "publish") Pill(statusFa(p.status), color = cs.outline)
+                if (p.status == "future") Pill("انتشار ${orderDate(p.date)}", color = cs.tertiary)
+                else if (p.status != "publish") Pill(statusFa(p.status), color = cs.outline)
                 if (p.featured) Pill("ویژه", color = cs.tertiary)
             }
         }
@@ -319,7 +336,7 @@ private fun FilterSheet(woo: WooState, onClose: () -> Unit) {
 // ───────────────────────── ویرایشگر محصول ─────────────────────────
 
 @Composable
-fun ProductEditor(woo: WooState, initial: WProduct?, onVariations: (WProduct) -> Unit, onClose: () -> Unit) {
+fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple", onVariations: (WProduct) -> Unit, onClose: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val isNew = initial == null
     val orig = initial ?: WProduct()
@@ -341,13 +358,26 @@ fun ProductEditor(woo: WooState, initial: WProduct?, onVariations: (WProduct) ->
     var confirmSave by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
-    var pType by remember { mutableStateOf("simple") }
+    var pType by remember { mutableStateOf(startType) }
     val attrNames = remember { mutableStateListOf("") }
     val attrVals = remember { mutableStateListOf("") }
     var varQty by remember { mutableStateOf("") }
+    var schedDay by remember {
+        mutableStateOf<Long?>(runCatching { if (orig.status == "future") java.time.LocalDate.parse(orig.date.take(10)).toEpochDay() else null }.getOrNull())
+    }
+    var schedH by remember { mutableStateOf(if (orig.status == "future" && orig.date.length >= 16) orig.date.substring(11, 13) else "12") }
+    var schedM by remember { mutableStateOf(if (orig.status == "future" && orig.date.length >= 16) orig.date.substring(14, 16) else "00") }
+    var showDate by remember { mutableStateOf(false) }
+    var brandIds by remember { mutableStateOf(orig.brandIds) }
     val ctx = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) woo.uploadImage(ctx, uri) { url -> if (url != null) image = url }
+    }
+    fun schedIso(): String {
+        val d = schedDay ?: return ""
+        val h = (en(schedH).toIntOrNull() ?: 0).coerceIn(0, 23)
+        val m = (en(schedM).toIntOrNull() ?: 0).coerceIn(0, 59)
+        return "${java.time.LocalDate.ofEpochDay(d)}T" + String.format(java.util.Locale.US, "%02d:%02d:00", h, m)
     }
     fun attrs(): List<Pair<String, List<String>>> =
         attrNames.indices.map { attrNames[it].trim() to splitOpts(attrVals[it]) }
@@ -355,6 +385,11 @@ fun ProductEditor(woo: WooState, initial: WProduct?, onVariations: (WProduct) ->
 
     fun build(): WProduct = orig.copy(
         type = if (isNew) pType else orig.type,
+        schedDate = if (status == "future") schedIso()
+        else if (orig.status == "future") java.time.LocalDateTime.now().withNano(0).format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+        else "",
+        brandIds = brandIds,
+        brandNames = woo.brands.filter { brandIds.contains(it.id) }.map { it.name },
         name = name.trim(), sku = sku.trim(),
         regularPrice = en(regular).trim(), salePrice = en(sale).trim(),
         status = status, stockStatus = stockStatus, manageStock = manage,
@@ -384,6 +419,8 @@ fun ProductEditor(woo: WooState, initial: WProduct?, onVariations: (WProduct) ->
         if (orig.description != n.description) d.add("توضیحات تغییر کرد")
         if (orig.shortDescription != n.shortDescription) d.add("توضیح کوتاه تغییر کرد")
         ch("وزن", orig.weight, n.weight)
+        if (n.status == "future") d.add("زمان انتشار: ${fmtDay(schedDay ?: 0L)} ساعت ${fa(schedIso().takeLast(8).take(5))}")
+        if (orig.brandIds != n.brandIds) d.add("برند: ${n.brandNames.joinToString("، ").ifBlank { "—" }}")
         return d
     }
 
@@ -475,7 +512,25 @@ fun ProductEditor(woo: WooState, initial: WProduct?, onVariations: (WProduct) ->
             }
         }
         Text("وضعیت انتشار", fontWeight = FontWeight.SemiBold)
-        Choices(listOf("publish" to "منتشر", "draft" to "پیش‌نویس", "pending" to "در انتظار", "private" to "خصوصی"), status) { status = it }
+        Choices(listOf("publish" to "منتشر", "future" to "زمان‌بندی", "draft" to "پیش‌نویس", "pending" to "در انتظار", "private" to "خصوصی"), status) { status = it }
+        if (status == "future") {
+            AppCard(pad = 12.dp) {
+                Text("انتشار خودکار", fontWeight = FontWeight.Bold)
+                Text(
+                    "خود سایت وردپرس در زمان تعیین‌شده محصول را منتشر می‌کند؛ حتی اگر گوشی خاموش باشد. ساعت بر اساس منطقهٔ زمانی سایت است.",
+                    fontSize = 12.sp, color = cs.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    ActionButton(
+                        schedDay?.let { fmtDay(it) } ?: "انتخاب تاریخ", { showDate = true },
+                        Modifier.weight(1.4f), icon = Icons.Rounded.CalendarMonth, kind = BtnKind.TONAL
+                    )
+                    Field(schedH, { schedH = it }, "ساعت", Modifier.weight(1f), number = true)
+                    Field(schedM, { schedM = it }, "دقیقه", Modifier.weight(1f), number = true)
+                }
+            }
+        }
         Text("موجودی", fontWeight = FontWeight.SemiBold)
         Choices(listOf("instock" to "موجود", "outofstock" to "ناموجود", "onbackorder" to "پیش‌سفارش"), stockStatus) { stockStatus = it }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -493,6 +548,10 @@ fun ProductEditor(woo: WooState, initial: WProduct?, onVariations: (WProduct) ->
         }
         Text("دسته‌ها", fontWeight = FontWeight.SemiBold)
         CategoryPicker(woo.categories, cats, { cats = it })
+        if (woo.brandsSupported && woo.brands.isNotEmpty()) {
+            Text("برند", fontWeight = FontWeight.SemiBold)
+            CategoryPicker(woo.brands, brandIds, { brandIds = it })
+        }
         Field(shortDesc, { shortDesc = it }, "توضیح کوتاه", singleLine = false, minLines = 2)
         Field(desc, { desc = it }, "توضیحات", singleLine = false, minLines = 4)
         err?.let { Text(it, color = cs.error, fontSize = 13.sp) }
@@ -505,6 +564,8 @@ fun ProductEditor(woo: WooState, initial: WProduct?, onVariations: (WProduct) ->
                     err = "نام محصول را وارد کن"
                 } else if (orig.priceEditable && regular.isNotBlank() && num(regular) == null) {
                     err = "قیمت معتبر نیست"
+                } else if (status == "future" && (schedDay == null || java.time.LocalDateTime.parse(schedIso()).isBefore(java.time.LocalDateTime.now()))) {
+                    err = "برای زمان‌بندی، تاریخ و ساعتی در آینده انتخاب کن"
                 } else if (isNew && pType == "variable" && (attrs().isEmpty() || comboCount(attrs()) > 100)) {
                     err = "ویژگی‌ها را کامل وارد کن (حداکثر ۱۰۰ تنوع)"
                 } else if (isNew && pType == "variable" && num(regular) == null) {
@@ -519,6 +580,7 @@ fun ProductEditor(woo: WooState, initial: WProduct?, onVariations: (WProduct) ->
         }
     }
 
+    if (showDate) PersianDatePicker(schedDay, { showDate = false }) { schedDay = it; showDate = false }
     if (confirmSave) {
         val n = build()
         val changes = if (isNew) listOf("محصول جدید «${n.name}» ساخته می‌شود") + (if (pType == "variable") listOf("نوع متغیر با ${fa(comboCount(attrs()))} تنوع، قیمت ${priceText(n.regularPrice)}") else emptyList()) else diff(n)
@@ -562,6 +624,12 @@ fun VariationsSheet(woo: WooState, product: WProduct, onClose: () -> Unit) {
     var q by remember { mutableStateOf("") }
     var pct by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf(false) }
+    var reloadKey by remember { mutableStateOf(0) }
+    var newAttrs by remember { mutableStateOf("") }
+    var newPrice by remember { mutableStateOf("") }
+    var newSale by remember { mutableStateOf("") }
+    var newQty by remember { mutableStateOf("") }
+    var confirmAdd by remember { mutableStateOf(false) }
     var pickId by remember { mutableStateOf(0L) }
     val ctx = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -576,7 +644,8 @@ fun VariationsSheet(woo: WooState, product: WProduct, onClose: () -> Unit) {
         }
     }
 
-    LaunchedEffect(product.id) {
+    LaunchedEffect(product.id, reloadKey) {
+        loaded = null
         woo.loadVariations(product.id) {
             if (it == null) failed = true else {
                 loaded = it
@@ -652,8 +721,43 @@ fun VariationsSheet(woo: WooState, product: WProduct, onClose: () -> Unit) {
                 )
             }
         }
+        AppCard(pad = 12.dp) {
+            Text("افزودن تنوع جدید", fontWeight = FontWeight.Bold)
+            Text(
+                "ویژگی‌ها را به‌صورت «نام=مقدار» بنویس و با ، جدا کن. مثال: رنگ=قرمز، سایز=L",
+                fontSize = 12.sp, color = cs.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            Field(newAttrs, { newAttrs = it }, "ویژگی‌ها (رنگ=قرمز، سایز=L)")
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Field(newPrice, { newPrice = it }, "قیمت", Modifier.weight(1f), number = true)
+                Field(newSale, { newSale = it }, "حراج", Modifier.weight(1f), number = true)
+                Field(newQty, { newQty = it }, "تعداد", Modifier.weight(1f), number = true)
+            }
+            Spacer(Modifier.height(8.dp))
+            ActionButton("افزودن تنوع", {
+                if (parseAttrs(newAttrs).isEmpty()) woo.message = "ویژگی‌ها را به‌صورت نام=مقدار وارد کن"
+                else if (num(newPrice) == null) woo.message = "قیمت را وارد کن"
+                else confirmAdd = true
+            }, Modifier.fillMaxWidth(), icon = Icons.Rounded.Add)
+        }
     }
 
+    if (confirmAdd) {
+        ConfirmDialog(
+            title = "افزودن تنوع جدید؟",
+            text = parseAttrs(newAttrs).joinToString(" · ") { "${it.first}: ${it.second}" } + "\nقیمت ${priceText(newPrice)}",
+            onConfirm = {
+                confirmAdd = false
+                woo.addVariation(
+                    product.id, parseAttrs(newAttrs), en(newPrice).trim(), en(newSale).trim(),
+                    en(newQty).trim().toIntOrNull()
+                ) { ok -> if (ok) { newAttrs = ""; reloadKey++ } }
+            },
+            onDismiss = { confirmAdd = false }
+        )
+    }
     if (confirm) {
         val ch = changed()
         ConfirmDialog(
