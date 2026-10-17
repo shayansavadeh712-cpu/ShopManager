@@ -21,6 +21,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -48,13 +52,44 @@ fun Ltr(content: @Composable () -> Unit) {
 @Composable
 fun heroBrush(): Brush {
     val cs = MaterialTheme.colorScheme
-    return SolidColor(cs.primaryContainer)
+    return Brush.linearGradient(listOf(cs.primaryContainer, cs.tertiaryContainer))
 }
 
 @Composable
 fun accentBrush(): Brush {
     val cs = MaterialTheme.colorScheme
-    return SolidColor(cs.primary)
+    return Brush.linearGradient(listOf(cs.primary, cs.tertiary))
+}
+
+/** ظاهر «برجسته و نرم» مشترک برای همهٔ کارت‌ها (سایه، شیب رنگ و لبهٔ نوری) */
+@Composable
+fun Modifier.raised(shape: Shape, selected: Boolean = false): Modifier {
+    val cs = MaterialTheme.colorScheme
+    val style = LocalSettings.current.cardStyle.value
+    val dark = cs.background.luminance() < 0.5f
+    val base = cs.surfaceVariant
+    val hi = lerp(base, Color.White, if (dark) 0.065f else 0.55f)
+    val lo = lerp(base, Color.Black, if (dark) 0.30f else 0.05f)
+    val fill: Brush = when {
+        selected -> Brush.linearGradient(listOf(cs.primary.copy(alpha = .30f), cs.primary.copy(alpha = .10f)))
+        style == 0 -> Brush.linearGradient(listOf(hi, lo))
+        style == 1 -> SolidColor(base)
+        else -> SolidColor(Color.Transparent)
+    }
+    val border: Brush = when {
+        selected -> SolidColor(cs.primary)
+        style == 2 -> SolidColor(cs.outlineVariant)
+        else -> Brush.linearGradient(
+            listOf(
+                Color.White.copy(alpha = if (dark) .13f else .95f),
+                Color.Transparent,
+                Color.Black.copy(alpha = if (dark) .40f else .07f)
+            )
+        )
+    }
+    val elev = if (style == 0 && !selected) 8.dp else 0.dp
+    return this.shadow(elev, shape, ambientColor = Color.Black, spotColor = Color.Black)
+        .clip(shape).background(fill).border(1.dp, border, shape)
 }
 
 @Composable
@@ -65,17 +100,8 @@ fun AppCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val s = LocalSettings.current
-    val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(s.radius.value.dp)
-    val bg: Brush = when (s.cardStyle.value) {
-        0 -> Brush.linearGradient(
-            listOf(cs.surfaceVariant.copy(alpha = .6f), cs.surfaceVariant.copy(alpha = .22f))
-        )
-        1 -> SolidColor(cs.surfaceVariant.copy(alpha = .7f))
-        else -> SolidColor(Color.Transparent)
-    }
-    val bc = if (s.cardStyle.value == 0) cs.primary.copy(alpha = .22f) else cs.outlineVariant
-    var m = modifier.clip(shape).background(bg).border(1.dp, bc, shape)
+    var m = modifier.raised(shape)
     if (onClick != null) m = m.clickable(onClick = onClick)
     Column(m.padding(pad), content = content)
 }
@@ -101,8 +127,9 @@ fun SectionTitle(text: String, icon: ImageVector? = null, trailing: (@Composable
 @Composable
 fun Pill(text: String, icon: ImageVector? = null, color: Color = MaterialTheme.colorScheme.primary) {
     Row(
-        Modifier.clip(RoundedCornerShape(50)).background(color.copy(alpha = .16f))
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+        Modifier.clip(RoundedCornerShape(50)).background(color.copy(alpha = .15f))
+            .border(1.dp, color.copy(alpha = .22f), RoundedCornerShape(50))
+            .padding(horizontal = 11.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (icon != null) {

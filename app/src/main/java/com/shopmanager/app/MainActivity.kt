@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.LaunchedEffect
@@ -42,6 +43,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,7 +72,22 @@ class MainActivity : ComponentActivity() {
 fun AppRoot(vm: AppViewModel) {
     val cs = MaterialTheme.colorScheme
     CompositionLocalProvider(LocalContentColor provides cs.onBackground) {
-        Box(Modifier.fillMaxSize().background(cs.background)) {
+        Box(
+            Modifier.fillMaxSize().background(cs.background).drawBehind {
+                drawRect(
+                    Brush.radialGradient(
+                        listOf(cs.primary.copy(alpha = .20f), Color.Transparent),
+                        center = Offset(size.width * 0.85f, 0f), radius = size.width * 0.95f
+                    )
+                )
+                drawRect(
+                    Brush.radialGradient(
+                        listOf(cs.tertiary.copy(alpha = .13f), Color.Transparent),
+                        center = Offset(0f, size.height * 0.9f), radius = size.width * 1.05f
+                    )
+                )
+            }
+        ) {
             if (!vm.auth.loggedIn) AuthScreen(vm) else Shell(vm)
         }
     }
@@ -74,41 +96,71 @@ fun AppRoot(vm: AppViewModel) {
 private val tabs = listOf(
     Icons.Rounded.Dashboard to "خانه",
     Icons.Rounded.Inventory2 to "محصولات",
-    Icons.Rounded.Category to "دسته‌ها",
-    Icons.Rounded.ReceiptLong to "سفارش",
-    Icons.Rounded.People to "مشتری",
-    Icons.Rounded.Settings to "تنظیمات"
+    Icons.Rounded.ReceiptLong to "سفارش‌ها",
+    Icons.Rounded.GridView to "بیشتر"
 )
+
+private fun barIndex(t: Int) = when (t) { 0 -> 0; 1 -> 1; 3 -> 2; else -> 3 }
+private fun barTab(i: Int) = when (i) { 0 -> 0; 1 -> 1; 2 -> 3; else -> 6 }
 
 @Composable
 fun FloatingBar(sel: Int, onSel: (Int) -> Unit, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(24.dp)
+    val shape = RoundedCornerShape(34.dp)
     Row(
-        modifier.padding(horizontal = 12.dp, vertical = 10.dp).fillMaxWidth().height(62.dp)
-            .shadow(16.dp, shape).clip(shape)
-            .background(cs.surface.copy(alpha = .97f))
-            .border(1.dp, cs.outlineVariant, shape)
-            .padding(5.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp)
+        modifier.padding(horizontal = 18.dp, vertical = 12.dp).fillMaxWidth().height(72.dp)
+            .shadow(20.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
+            .clip(shape)
+            .background(cs.surface)
+            .border(
+                1.dp,
+                Brush.linearGradient(listOf(Color.White.copy(alpha = .12f), Color.Transparent, Color.Black.copy(alpha = .4f))),
+                shape
+            )
+            .padding(horizontal = 6.dp)
     ) {
         tabs.forEachIndexed { i, (icon, label) ->
             val on = i == sel
-            val w by animateFloatAsState(if (on) 1.9f else 1f, label = "w")
-            Box(
-                Modifier.weight(w).fillMaxHeight().clip(RoundedCornerShape(18.dp))
-                    .then(if (on) Modifier.background(accentBrush()) else Modifier)
-                    .clickable { onSel(i) },
-                contentAlignment = androidx.compose.ui.Alignment.Center
+            Column(
+                Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(26.dp)).clickable { onSel(i) },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(42.dp)
+                        .then(
+                            if (on) Modifier.shadow(12.dp, CircleShape, ambientColor = cs.primary, spotColor = cs.primary)
+                                .clip(CircleShape).background(accentBrush())
+                            else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(icon, null, Modifier.size(22.dp), tint = if (on) cs.onPrimary else cs.onSurfaceVariant)
-                    AnimatedVisibility(visible = on) {
-                        Text(" $label", color = cs.onPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
-                    }
                 }
+                Text(
+                    label, fontSize = 10.sp, maxLines = 1,
+                    color = if (on) cs.primary else cs.onSurfaceVariant,
+                    fontWeight = if (on) FontWeight.ExtraBold else FontWeight.Medium
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun SubScreen(woo: WooState, content: @Composable () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 4.dp).clip(RoundedCornerShape(50))
+                .clickable { woo.tab = 6 }.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            Icon(Icons.AutoMirrored.Rounded.ArrowBack, null, tint = cs.primary, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("بازگشت", color = cs.primary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+        Box(Modifier.weight(1f)) { content() }
     }
 }
 
@@ -116,7 +168,7 @@ fun FloatingBar(sel: Int, onSel: (Int) -> Unit, modifier: Modifier = Modifier) {
 fun Shell(vm: AppViewModel) {
     val woo = vm.woo
     val cs = MaterialTheme.colorScheme
-    BackHandler(enabled = woo.tab != 0) { woo.tab = 0 }
+    BackHandler(enabled = woo.tab != 0) { woo.tab = if (woo.tab == 2 || woo.tab == 4 || woo.tab == 5) 6 else 0 }
     LaunchedEffect(woo.connected) { if (woo.connected) woo.bootstrap() }
     LaunchedEffect(woo.message) {
         if (woo.message != null) {
@@ -126,14 +178,15 @@ fun Shell(vm: AppViewModel) {
     }
     Box(Modifier.fillMaxSize()) {
         Crossfade(targetState = woo.tab, modifier = Modifier.fillMaxSize().statusBarsPadding(), label = "screen") { t ->
-            if (t == 5) SettingsScreen(vm)
-            else if (!woo.connected) ConnectScreen(woo)
+            if (!woo.connected && t != 5 && t != 6) ConnectScreen(woo)
             else when (t) {
                 0 -> DashboardTab(woo)
                 1 -> ProductsTab(woo)
-                2 -> CategoriesTab(woo)
                 3 -> OrdersTab(woo)
-                else -> CustomersTab(woo)
+                6 -> MoreTab(woo)
+                2 -> SubScreen(woo) { CategoriesTab(woo) }
+                4 -> SubScreen(woo) { CustomersTab(woo) }
+                else -> SubScreen(woo) { SettingsScreen(vm) }
             }
         }
         Column(
@@ -161,8 +214,8 @@ fun Shell(vm: AppViewModel) {
             }
         }
         FloatingBar(
-            sel = woo.tab,
-            onSel = { woo.tab = it },
+            sel = barIndex(woo.tab),
+            onSel = { woo.tab = barTab(it) },
             modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter).navigationBarsPadding()
         )
     }
@@ -171,13 +224,13 @@ fun Shell(vm: AppViewModel) {
 @Composable
 private fun BannerBox(onClick: (() -> Unit)? = null, content: @Composable RowScope.() -> Unit) {
     val cs = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(22.dp)
     Row(
-        Modifier.fillMaxWidth().shadow(10.dp, shape).clip(shape)
-            .background(cs.surfaceVariant).border(1.dp, cs.primary.copy(alpha = .4f), shape)
+        Modifier.fillMaxWidth().shadow(14.dp, shape, ambientColor = Color.Black, spotColor = Color.Black).clip(shape)
+            .background(cs.surface).border(1.dp, cs.primary.copy(alpha = .45f), shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
         content = content
     )
 }

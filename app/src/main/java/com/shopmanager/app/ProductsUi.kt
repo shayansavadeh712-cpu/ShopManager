@@ -30,6 +30,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +67,7 @@ fun ProductsTab(woo: WooState) {
     var editing by remember { mutableStateOf<WProduct?>(null) }
     var creating by remember { mutableStateOf(false) }
     var createType by remember { mutableStateOf("simple") }
+    var chooser by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
     var showBulk by remember { mutableStateOf(false) }
     var showVars by remember { mutableStateOf<WProduct?>(null) }
@@ -86,21 +88,10 @@ fun ProductsTab(woo: WooState) {
             "محصولات",
             if (woo.total > 0) "${fa(woo.total)} محصول" else null
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IconBox(if (woo.viewGrid) Icons.Rounded.ViewList else Icons.Rounded.GridView) { woo.viewGrid = !woo.viewGrid }
-                ActionButton("متغیر", { createType = "variable"; creating = true }, icon = Icons.Rounded.Layers, kind = BtnKind.TONAL)
-                IconBox(Icons.Rounded.Add, filled = true) { createType = "simple"; creating = true }
-            }
+            IconBox(Icons.Rounded.Add, filled = true) { chooser = true }
         }
-        SearchField(woo.query, { woo.query = it }, "جستجوی نام، SKU یا توضیحات...") { woo.loadProducts(true) }
-
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.weight(1f)) {
-                Choices(
-                    listOf("any" to "همه", "publish" to "منتشر شده", "future" to "زمان‌بندی‌شده", "draft" to "پیش‌نویس", "pending" to "در انتظار", "private" to "خصوصی"),
-                    woo.statusF
-                ) { woo.statusF = it; woo.loadProducts(true) }
-            }
+            SearchField(woo.query, { woo.query = it }, "جستجوی محصول...", Modifier.weight(1f)) { woo.loadProducts(true) }
             Box {
                 IconBox(Icons.Rounded.Tune) { showFilters = true }
                 if (woo.activeFilterCount > 0) {
@@ -110,12 +101,34 @@ fun ProductsTab(woo: WooState) {
                     ) { Text(fa(woo.activeFilterCount), color = cs.onPrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                 }
             }
+            IconBox(if (woo.viewGrid) Icons.Rounded.ViewList else Icons.Rounded.GridView) { woo.viewGrid = !woo.viewGrid }
         }
-
+        val preset = when {
+            woo.activeFilterCount == 0 -> "all"
+            woo.activeFilterCount == 1 && woo.statusF == "publish" -> "pub"
+            woo.activeFilterCount == 1 && woo.statusF == "draft" -> "draft"
+            woo.activeFilterCount == 1 && woo.stockF == "outofstock" -> "oos"
+            woo.activeFilterCount == 1 && woo.onSaleF -> "sale"
+            else -> "custom"
+        }
         Choices(
-            listOf("" to "همه انواع", "variable" to "فقط متغیرها", "simple" to "فقط ساده"),
-            woo.typeF
-        ) { woo.typeF = it; woo.loadProducts(true) }
+            listOf("all" to "همه", "pub" to "منتشر شده", "oos" to "ناموجود", "sale" to "حراج", "draft" to "پیش‌نویس")
+                .let { if (preset == "custom") it + ("custom" to "فیلتر سفارشی") else it },
+            preset
+        ) { pick ->
+            if (pick != "custom") {
+                val keep = woo.query
+                woo.resetFilters()
+                woo.query = keep
+                when (pick) {
+                    "pub" -> woo.statusF = "publish"
+                    "draft" -> woo.statusF = "draft"
+                    "oos" -> woo.stockF = "outofstock"
+                    "sale" -> woo.onSaleF = true
+                }
+                woo.loadProducts(true)
+            }
+        }
 
         if (selMode) {
             AppCard(pad = 10.dp) {
@@ -183,18 +196,27 @@ fun ProductsTab(woo: WooState) {
     }
     showVars?.let { p -> VariationsSheet(woo, p) { showVars = null } }
     if (showFilters) FilterSheet(woo) { showFilters = false }
+    if (chooser) {
+        AppSheet({ chooser = false }, "چه محصولی می‌سازی؟") {
+            ActionButton("محصول ساده", { createType = "simple"; creating = true; chooser = false }, Modifier.fillMaxWidth(), icon = Icons.Rounded.Add)
+            Text("یک قیمت و یک موجودی دارد.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            ActionButton("محصول متغیر (رنگ، سایز...)", { createType = "variable"; creating = true; chooser = false }, Modifier.fillMaxWidth(), icon = Icons.Rounded.Layers, kind = BtnKind.TONAL)
+            Text("برای هر رنگ یا سایز قیمت، موجودی و عکس جدا دارد.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
     if (showBulk) BulkSheet(woo) { showBulk = false }
 }
 
 @Composable
 fun IconBox(icon: androidx.compose.ui.graphics.vector.ImageVector, filled: Boolean = false, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val base = Modifier.size(46.dp)
     Box(
-        Modifier.size(42.dp).clip(RoundedCornerShape(13.dp))
-            .background(if (filled) cs.primary else cs.surfaceVariant.copy(alpha = .55f))
-            .clickable(onClick = onClick),
+        (if (filled) base.shadow(12.dp, CircleShape, ambientColor = cs.primary, spotColor = cs.primary)
+            .clip(CircleShape).background(accentBrush())
+        else base.raised(CircleShape)).clickable(onClick = onClick),
         contentAlignment = Alignment.Center
-    ) { Icon(icon, null, tint = if (filled) cs.onPrimary else cs.onSurface, modifier = Modifier.size(20.dp)) }
+    ) { Icon(icon, null, tint = if (filled) cs.onPrimary else cs.onSurface, modifier = Modifier.size(21.dp)) }
 }
 
 @Composable
@@ -232,16 +254,14 @@ private fun PriceLine(p: WProduct, currency: String) {
 @Composable
 fun ProductRow(p: WProduct, currency: String, selected: Boolean, onClick: () -> Unit, onLong: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(24.dp)
     Row(
-        Modifier.fillMaxWidth().clip(shape)
-            .background(if (selected) cs.primary.copy(alpha = .16f) else cs.surfaceVariant.copy(alpha = .4f))
-            .border(1.dp, if (selected) cs.primary else cs.outlineVariant, shape)
+        Modifier.fillMaxWidth().raised(shape, selected)
             .combinedClickable(onClick = onClick, onLongClick = onLong)
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.size(68.dp).clip(RoundedCornerShape(14.dp))) {
+        Box(Modifier.size(76.dp).clip(RoundedCornerShape(18.dp))) {
             RemoteImage(p.image, Modifier.fillMaxSize())
             if (selected) {
                 Box(Modifier.fillMaxSize().background(cs.primary.copy(alpha = .6f)), contentAlignment = Alignment.Center) {
@@ -250,13 +270,12 @@ fun ProductRow(p: WProduct, currency: String, selected: Boolean, onClick: () -> 
             }
         }
         Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(p.name.ifBlank { "(بدون نام)" }, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-            if (p.sku.isNotBlank()) Text("SKU: ${p.sku}", fontSize = 11.sp, color = cs.onSurfaceVariant)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(p.name.ifBlank { "(بدون نام)" }, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
             PriceLine(p, currency)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 StockPill(p)
-                if (p.status == "future") Pill("انتشار ${orderDate(p.date)}", color = cs.tertiary)
+                if (p.status == "future") Pill("انتشار ${orderDate(gmtLocal(p.dateGmt)?.toString() ?: p.date)}", color = cs.tertiary)
                 else if (p.status != "publish") Pill(statusFa(p.status), color = cs.outline)
                 if (p.featured) Pill("ویژه", color = cs.tertiary)
             }
@@ -268,16 +287,14 @@ fun ProductRow(p: WProduct, currency: String, selected: Boolean, onClick: () -> 
 @Composable
 fun ProductCard(p: WProduct, currency: String, selected: Boolean, onClick: () -> Unit, onLong: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(24.dp)
     Column(
-        Modifier.fillMaxWidth().clip(shape)
-            .background(if (selected) cs.primary.copy(alpha = .16f) else cs.surfaceVariant.copy(alpha = .4f))
-            .border(1.dp, if (selected) cs.primary else cs.outlineVariant, shape)
+        Modifier.fillMaxWidth().raised(shape, selected)
             .combinedClickable(onClick = onClick, onLongClick = onLong)
-            .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(12.dp))) {
+        Box(Modifier.fillMaxWidth().height(128.dp).clip(RoundedCornerShape(18.dp))) {
             RemoteImage(p.image, Modifier.fillMaxSize())
             if (selected) {
                 Box(Modifier.fillMaxSize().background(cs.primary.copy(alpha = .6f)), contentAlignment = Alignment.Center) {
@@ -285,7 +302,7 @@ fun ProductCard(p: WProduct, currency: String, selected: Boolean, onClick: () ->
                 }
             }
         }
-        Text(p.name.ifBlank { "(بدون نام)" }, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Text(p.name.ifBlank { "(بدون نام)" }, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, fontSize = 13.sp, minLines = 2)
         PriceLine(p, currency)
         StockPill(p)
     }
@@ -296,6 +313,11 @@ fun ProductCard(p: WProduct, currency: String, selected: Boolean, onClick: () ->
 @Composable
 private fun FilterSheet(woo: WooState, onClose: () -> Unit) {
     AppSheet(onClose, "فیلتر و مرتب‌سازی") {
+        Text("وضعیت انتشار", fontWeight = FontWeight.SemiBold)
+        Choices(
+            listOf("any" to "همه", "publish" to "منتشر شده", "future" to "زمان‌بندی‌شده", "draft" to "پیش‌نویس", "pending" to "در انتظار", "private" to "خصوصی"),
+            woo.statusF
+        ) { woo.statusF = it }
         Text("مرتب‌سازی", fontWeight = FontWeight.SemiBold)
         Choices(
             listOf(0 to "جدیدترین", 1 to "نام", 2 to "ارزان‌ترین", 3 to "گران‌ترین", 4 to "پرفروش"),
@@ -362,11 +384,10 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
     val attrNames = remember { mutableStateListOf("") }
     val attrVals = remember { mutableStateListOf("") }
     var varQty by remember { mutableStateOf("") }
-    var schedDay by remember {
-        mutableStateOf<Long?>(runCatching { if (orig.status == "future") java.time.LocalDate.parse(orig.date.take(10)).toEpochDay() else null }.getOrNull())
-    }
-    var schedH by remember { mutableStateOf(if (orig.status == "future" && orig.date.length >= 16) orig.date.substring(11, 13) else "12") }
-    var schedM by remember { mutableStateOf(if (orig.status == "future" && orig.date.length >= 16) orig.date.substring(14, 16) else "00") }
+    val origLocal = remember { if (orig.status == "future") gmtLocal(orig.dateGmt) else null }
+    var schedDay by remember { mutableStateOf<Long?>(origLocal?.toLocalDate()?.toEpochDay()) }
+    var schedH by remember { mutableStateOf(origLocal?.let { String.format(java.util.Locale.US, "%02d", it.hour) } ?: "12") }
+    var schedM by remember { mutableStateOf(origLocal?.let { String.format(java.util.Locale.US, "%02d", it.minute) } ?: "00") }
     var showDate by remember { mutableStateOf(false) }
     var brandIds by remember { mutableStateOf(orig.brandIds) }
     val ctx = LocalContext.current
@@ -385,8 +406,11 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
 
     fun build(): WProduct = orig.copy(
         type = if (isNew) pType else orig.type,
-        schedDate = if (status == "future") schedIso()
-        else if (orig.status == "future") java.time.LocalDateTime.now().withNano(0).format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+        schedDate = if (status == "future") deviceToSite(schedIso(), woo.siteOffsetSec).first
+        else if (orig.status == "future") deviceToSite(java.time.LocalDateTime.now().withNano(0).toString(), woo.siteOffsetSec).first
+        else "",
+        schedGmt = if (status == "future") deviceToSite(schedIso(), woo.siteOffsetSec).second
+        else if (orig.status == "future") deviceToSite(java.time.LocalDateTime.now().withNano(0).toString(), woo.siteOffsetSec).second
         else "",
         brandIds = brandIds,
         brandNames = woo.brands.filter { brandIds.contains(it.id) }.map { it.name },
@@ -424,58 +448,41 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
         return d
     }
 
-    AppSheet(onClose, if (isNew) "محصول جدید" else "ویرایش محصول") {
-        if (isNew) {
-            Text("نوع محصول", fontWeight = FontWeight.SemiBold)
-            Choices(listOf("simple" to "ساده", "variable" to "متغیر (رنگ، سایز، ...)"), pType) { pType = it }
-        }
+    val baseStatuses = listOf("publish" to "منتشر", "future" to "زمان‌بندی", "draft" to "پیش‌نویس")
+    val statusOptions = if (baseStatuses.any { it.first == status }) baseStatuses else baseStatuses + (status to statusFa(status))
+    val catSummary = woo.categories.filter { cats.contains(it.id) }.joinToString("، ") { it.name }.ifBlank { "بدون دسته" }
+
+    AppSheet(onClose, if (isNew) (if (pType == "variable") "محصول متغیر جدید" else "محصول جدید") else "ویرایش محصول") {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(84.dp).clip(RoundedCornerShape(16.dp))) { RemoteImage(image, Modifier.fillMaxSize(), 360) }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(Modifier.size(96.dp).clip(RoundedCornerShape(18.dp)).clickable { picker.launch("image/*") }) {
+                RemoteImage(image, Modifier.fillMaxSize(), 360)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionButton("عکس از گالری", { picker.launch("image/*") }, Modifier.fillMaxWidth(), icon = Icons.Rounded.PhotoLibrary, kind = BtnKind.TONAL)
                 if (!isNew) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Pill(typeFa(orig.type))
-                        Pill("#${fa(orig.id)}", color = cs.outline)
+                        if (orig.totalSales > 0) Pill("${fa(orig.totalSales)} فروش", color = cs.outline)
                     }
-                    if (orig.totalSales > 0) Text("${fa(orig.totalSales)} فروش", fontSize = 12.sp, color = cs.onSurfaceVariant)
                 }
             }
         }
         Field(name, { name = it }, "نام محصول")
-        Field(image, { image = it }, "آدرس تصویر (URL)")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ActionButton("انتخاب از گالری", { picker.launch("image/*") }, Modifier.weight(1f), icon = Icons.Rounded.PhotoLibrary, kind = BtnKind.TONAL)
-            if (image.isNotBlank()) ActionButton("حذف تصویر", { image = "" }, kind = BtnKind.GHOST)
-        }
-        if (!isNew && orig.permalink.isNotBlank()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ActionButton("باز کردن در سایت", {
-                    ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(orig.permalink)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                }, Modifier.weight(1f), icon = Icons.Rounded.OpenInNew, kind = BtnKind.TONAL)
-                ActionButton("کپی لینک", {
-                    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    cm.setPrimaryClip(ClipData.newPlainText("link", orig.permalink))
-                    Toast.makeText(ctx, "لینک کپی شد", Toast.LENGTH_SHORT).show()
-                }, Modifier.weight(1f), icon = Icons.Rounded.ContentCopy, kind = BtnKind.TONAL)
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Field(sku, { sku = it }, "SKU", Modifier.weight(1f))
-            Field(weight, { weight = it }, "وزن", Modifier.weight(1f), number = true)
-        }
+        if (isNew) Choices(listOf("simple" to "ساده", "variable" to "متغیر (رنگ، سایز...)"), pType) { pType = it }
+
         if (orig.priceEditable) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Field(regular, { regular = it }, "قیمت (${woo.currency})", Modifier.weight(1f), number = true)
+                Field(regular, { regular = it }, if (isNew && pType == "variable") "قیمت همهٔ تنوع‌ها" else "قیمت (${woo.currency})", Modifier.weight(1f), number = true)
                 Field(sale, { sale = it }, "قیمت حراج", Modifier.weight(1f), number = true)
             }
         } else if (orig.type == "variable") {
-            AppCard(onClick = { onVariations(orig) }, pad = 12.dp) {
+            AppCard(onClick = { onVariations(orig) }, pad = 14.dp) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Layers, null, tint = cs.primary)
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("مدیریت تنوع‌ها (${fa(orig.varCount)})", fontWeight = FontWeight.Bold)
-                        Text("قیمت، حراج و موجودی هر تنوع", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                        Text("تنوع‌ها (${fa(orig.varCount)})", fontWeight = FontWeight.Bold)
+                        Text("قیمت، موجودی و عکس هر رنگ/سایز", fontSize = 12.sp, color = cs.onSurfaceVariant)
                     }
                     Icon(Icons.Rounded.ChevronLeft, null)
                 }
@@ -483,17 +490,18 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
         } else {
             Text("قیمت این نوع محصول از خود محصول قابل ویرایش نیست.", color = cs.onSurfaceVariant, fontSize = 13.sp)
         }
+
         if (isNew && pType == "variable") {
             AppCard(pad = 12.dp) {
                 Text("ویژگی‌های متغیر", fontWeight = FontWeight.Bold)
                 Text(
-                    "مثال: نام «رنگ» و مقادیر «قرمز، آبی، سبز». برای هر ترکیب یک تنوع ساخته می‌شود و قیمت و موجودی بالا برای همه یکسان است (بعداً از «مدیریت تنوع‌ها» جدا ویرایش کن).",
+                    "نام ویژگی (مثلاً رنگ) و مقادیرش (قرمز، آبی، سبز). برای هر ترکیب یک تنوع ساخته می‌شود.",
                     fontSize = 12.sp, color = cs.onSurfaceVariant
                 )
                 Spacer(Modifier.height(8.dp))
                 attrNames.indices.forEach { i ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Field(attrNames[i], { attrNames[i] = it }, "نام ویژگی", Modifier.weight(1f))
+                        Field(attrNames[i], { attrNames[i] = it }, "ویژگی", Modifier.weight(1f))
                         Field(attrVals[i], { attrVals[i] = it }, "مقادیر (با ، جدا کن)", Modifier.weight(1.6f))
                         if (attrNames.size > 1) IconBox(Icons.Rounded.Close) { attrNames.removeAt(i); attrVals.removeAt(i) }
                     }
@@ -511,16 +519,14 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
                 )
             }
         }
-        Text("وضعیت انتشار", fontWeight = FontWeight.SemiBold)
-        Choices(listOf("publish" to "منتشر", "future" to "زمان‌بندی", "draft" to "پیش‌نویس", "pending" to "در انتظار", "private" to "خصوصی"), status) { status = it }
-        if (status == "future") {
-            AppCard(pad = 12.dp) {
-                Text("انتشار خودکار", fontWeight = FontWeight.Bold)
-                Text(
-                    "خود سایت وردپرس در زمان تعیین‌شده محصول را منتشر می‌کند؛ حتی اگر گوشی خاموش باشد. ساعت بر اساس منطقهٔ زمانی سایت است.",
-                    fontSize = 12.sp, color = cs.onSurfaceVariant
-                )
-                Spacer(Modifier.height(8.dp))
+
+        Section(
+            "انتشار",
+            statusFa(status) + (if (status == "future" && schedDay != null) " · ${fmtDay(schedDay!!)} ${fa(schedH)}:${fa(schedM)}" else "")
+        ) {
+            Choices(statusOptions, status) { status = it }
+            if (status == "future") {
+                Text("سایت وردپرس خودش سر همین ساعت منتشر می‌کند (به وقت گوشی). گوشی لازم نیست روشن باشد.", fontSize = 12.sp, color = cs.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     ActionButton(
                         schedDay?.let { fmtDay(it) } ?: "انتخاب تاریخ", { showDate = true },
@@ -530,30 +536,55 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
                     Field(schedM, { schedM = it }, "دقیقه", Modifier.weight(1f), number = true)
                 }
             }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("محصول ویژه", Modifier.weight(1f))
+                Switch(featured, { featured = it })
+            }
         }
-        Text("موجودی", fontWeight = FontWeight.SemiBold)
-        Choices(listOf("instock" to "موجود", "outofstock" to "ناموجود", "onbackorder" to "پیش‌سفارش"), stockStatus) { stockStatus = it }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("مدیریت تعداد موجودی", Modifier.weight(1f))
-            Switch(manage, { manage = it })
+
+        Section("موجودی", stockFa(stockStatus) + (if (manage && qty.isNotBlank()) " · ${fa(qty)} عدد" else "")) {
+            Choices(listOf("instock" to "موجود", "outofstock" to "ناموجود", "onbackorder" to "پیش‌سفارش"), stockStatus) { stockStatus = it }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("مدیریت تعداد موجودی", Modifier.weight(1f))
+                Switch(manage, { manage = it })
+            }
+            if (manage) {
+                Field(qty, { qty = it }, "تعداد", number = true)
+                Text("پیش‌سفارش در صورت اتمام", fontWeight = FontWeight.SemiBold)
+                Choices(listOf("no" to "غیرمجاز", "notify" to "با اطلاع", "yes" to "مجاز"), backorders) { backorders = it }
+            }
         }
-        if (manage) {
-            Field(qty, { qty = it }, "تعداد", number = true)
-            Text("پیش‌سفارش در صورت اتمام", fontWeight = FontWeight.SemiBold)
-            Choices(listOf("no" to "غیرمجاز", "notify" to "با اطلاع", "yes" to "مجاز"), backorders) { backorders = it }
+
+        Section("دسته و برند", catSummary + (if (brandIds.isNotEmpty()) " · " + woo.brands.filter { brandIds.contains(it.id) }.joinToString("، ") { it.name } else "")) {
+            Text("دسته‌ها", fontWeight = FontWeight.SemiBold)
+            CategoryPicker(woo.categories, cats, { cats = it })
+            if (woo.brandsSupported && woo.brands.isNotEmpty()) {
+                Text("برند", fontWeight = FontWeight.SemiBold)
+                CategoryPicker(woo.brands, brandIds, { brandIds = it })
+            }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("محصول ویژه", Modifier.weight(1f))
-            Switch(featured, { featured = it })
+
+        Section("اطلاعات بیشتر", "SKU، وزن، توضیحات، لینک") {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Field(sku, { sku = it }, "SKU", Modifier.weight(1f))
+                Field(weight, { weight = it }, "وزن", Modifier.weight(1f), number = true)
+            }
+            Field(image, { image = it }, "آدرس تصویر (URL)")
+            Field(shortDesc, { shortDesc = it }, "توضیح کوتاه", singleLine = false, minLines = 2)
+            Field(desc, { desc = it }, "توضیحات", singleLine = false, minLines = 4)
+            if (!isNew && orig.permalink.isNotBlank()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ActionButton("باز کردن در سایت", {
+                        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(orig.permalink)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }, Modifier.weight(1f), icon = Icons.Rounded.OpenInNew, kind = BtnKind.TONAL)
+                    ActionButton("کپی لینک", {
+                        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("link", orig.permalink))
+                        Toast.makeText(ctx, "لینک کپی شد", Toast.LENGTH_SHORT).show()
+                    }, Modifier.weight(1f), icon = Icons.Rounded.ContentCopy, kind = BtnKind.TONAL)
+                }
+            }
         }
-        Text("دسته‌ها", fontWeight = FontWeight.SemiBold)
-        CategoryPicker(woo.categories, cats, { cats = it })
-        if (woo.brandsSupported && woo.brands.isNotEmpty()) {
-            Text("برند", fontWeight = FontWeight.SemiBold)
-            CategoryPicker(woo.brands, brandIds, { brandIds = it })
-        }
-        Field(shortDesc, { shortDesc = it }, "توضیح کوتاه", singleLine = false, minLines = 2)
-        Field(desc, { desc = it }, "توضیحات", singleLine = false, minLines = 4)
         err?.let { Text(it, color = cs.error, fontSize = 13.sp) }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (!isNew) {

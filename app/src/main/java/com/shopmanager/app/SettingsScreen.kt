@@ -53,7 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 private val presets = listOf(
-    "اخگر" to 14f, "بنفش" to 268f, "اقیانوس" to 212f, "فیروزه" to 186f, "زمرد" to 156f,
+    "اقیانوس" to 215f, "بنفش" to 268f, "اخگر" to 14f, "فیروزه" to 186f, "زمرد" to 156f,
     "طلایی" to 45f, "غروب" to 22f, "مرجانی" to 6f, "رز" to 338f, "سرخابی" to 305f
 )
 
@@ -210,7 +210,7 @@ fun SettingsScreen(vm: AppViewModel) {
                         fa(String.format(java.util.Locale.US, "%.2f", s.fontScale.value))
                     ) { s.fontScale.set(it) }
                     Label("سبک کارت‌ها")
-                    ChoiceRow(listOf("شیشه‌ای", "توپر", "خطی"), s.cardStyle.value) { s.cardStyle.set(it) }
+                    ChoiceRow(listOf("نرم و برجسته", "توپر", "خطی"), s.cardStyle.value) { s.cardStyle.set(it) }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("راست‌چین (فارسی)", Modifier.weight(1f))
                         Switch(checked = s.rtl.value, onCheckedChange = { s.rtl.set(it) })

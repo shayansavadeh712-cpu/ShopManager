@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -47,8 +48,25 @@ fun OrdersTab(woo: WooState) {
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        ScreenHeader("سفارش‌ها") { IconBox(Icons.Rounded.Refresh) { woo.loadOrders(true) } }
-        SearchField(woo.orderQuery, { woo.orderQuery = it }, "جستجوی شماره سفارش، نام یا تلفن...") { woo.loadOrders(true) }
+        var rangeMenu by remember { mutableStateOf(false) }
+        ScreenHeader(
+            "سفارش‌ها",
+            if (woo.orders.isNotEmpty()) "${fa(woo.orders.size)} سفارش در لیست" else null
+        ) { IconBox(Icons.Rounded.Refresh) { woo.loadOrders(true) } }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SearchField(woo.orderQuery, { woo.orderQuery = it }, "جستجوی شماره، نام یا تلفن...", Modifier.weight(1f)) { woo.loadOrders(true) }
+            Box {
+                IconBox(Icons.Rounded.CalendarMonth, filled = woo.orderRange != 0) { rangeMenu = true }
+                DropdownMenu(expanded = rangeMenu, onDismissRequest = { rangeMenu = false }) {
+                    listOf(0 to "همه زمان‌ها", 1 to "امروز", 2 to "۷ روز اخیر", 3 to "۳۰ روز اخیر").forEach { (v, l) ->
+                        DropdownMenuItem(
+                            text = { Text(l, fontWeight = if (v == woo.orderRange) FontWeight.Bold else FontWeight.Normal) },
+                            onClick = { rangeMenu = false; woo.orderRange = v; woo.loadOrders(true) }
+                        )
+                    }
+                }
+            }
+        }
         Choices(
             listOf(
                 "any" to "همه", "pending" to "در انتظار پرداخت", "processing" to "در حال انجام", "on-hold" to "در انتظار بررسی",
@@ -56,10 +74,6 @@ fun OrdersTab(woo: WooState) {
             ),
             woo.orderStatusF
         ) { woo.orderStatusF = it; woo.loadOrders(true) }
-        Choices(
-            listOf(0 to "همه زمان‌ها", 1 to "امروز", 2 to "۷ روز", 3 to "۳۰ روز"),
-            woo.orderRange
-        ) { woo.orderRange = it; woo.loadOrders(true) }
         if (woo.orderCustomer != 0L) {
             Row(
                 Modifier.clip(RoundedCornerShape(50)).background(cs.primary.copy(alpha = .16f))
@@ -105,22 +119,24 @@ fun OrdersTab(woo: WooState) {
 @Composable
 private fun OrderRow(o: WOrder, currency: String, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    AppCard(onClick = onClick, pad = 14.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("سفارش ${fa(o.number)}", fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
-            Pill(orderFa(o.status), color = orderColor(o.status))
+    val c = orderColor(o.status)
+    Row(
+        Modifier.fillMaxWidth().raised(RoundedCornerShape(24.dp)).clickable(onClick = onClick).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(48.dp).clip(CircleShape).background(c.copy(alpha = .16f)).border(1.dp, c.copy(alpha = .35f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) { Icon(Icons.Rounded.ReceiptLong, null, tint = c, modifier = Modifier.size(22.dp)) }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(o.customer, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text("سفارش ${fa(o.number)} · ${o.date}", fontSize = 12.sp, color = cs.onSurfaceVariant, maxLines = 1)
+            Pill(orderFa(o.status), color = c)
         }
-        Spacer(Modifier.height(4.dp))
-        Text(o.customer, fontWeight = FontWeight.SemiBold)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(o.date, fontSize = 12.sp, color = cs.onSurfaceVariant, modifier = Modifier.weight(1f))
-            Text("${priceText(o.total)} $currency", fontWeight = FontWeight.Bold, color = cs.primary)
-        }
-        if (o.lines.isNotEmpty()) {
-            Text(
-                o.lines.joinToString("، ") { "${it.name} ×${fa(it.qty)}" },
-                fontSize = 12.sp, color = cs.onSurfaceVariant, maxLines = 2
-            )
+        Column(horizontalAlignment = Alignment.End) {
+            Text(priceText(o.total), fontWeight = FontWeight.ExtraBold, color = cs.primary, fontSize = 16.sp)
+            Text(currency, fontSize = 11.sp, color = cs.onSurfaceVariant)
         }
     }
 }

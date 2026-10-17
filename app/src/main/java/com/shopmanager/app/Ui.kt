@@ -31,11 +31,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Image as ImageIcon
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
@@ -129,18 +136,30 @@ fun RemoteImage(url: String, modifier: Modifier = Modifier, target: Int = 240) {
 
 // ───────────────────────── اجزای عمومی ─────────────────────────
 
+/** رنگ فرورفتهٔ پشت فیلدها و چیپ‌های غیرفعال */
+@Composable
+fun insetColor(): Color {
+    val cs = MaterialTheme.colorScheme
+    val dark = cs.background.luminance() < 0.5f
+    return lerp(cs.surfaceVariant, Color.Black, if (dark) 0.26f else 0.05f)
+}
+
 @Composable
 fun <T> Choices(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    val inset = insetColor()
+    val shape = RoundedCornerShape(50)
+    Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         options.forEach { (v, label) ->
             val on = v == selected
             Box(
-                Modifier.clip(RoundedCornerShape(50))
-                    .background(if (on) cs.primary else cs.surfaceVariant.copy(alpha = .5f))
-                    .border(1.dp, if (on) cs.primary else cs.outlineVariant, RoundedCornerShape(50))
+                Modifier
+                    .then(if (on) Modifier.shadow(8.dp, shape, ambientColor = cs.primary, spotColor = cs.primary) else Modifier)
+                    .clip(shape)
+                    .background(if (on) accentBrush() else SolidColor(inset))
+                    .border(1.dp, if (on) Color.Transparent else cs.outlineVariant.copy(alpha = .7f), shape)
                     .clickable { onSelect(v) }
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 9.dp)
             ) {
                 Text(
                     label, fontSize = 13.sp, maxLines = 1,
@@ -164,13 +183,19 @@ fun Field(
     placeholder: String? = null,
     password: Boolean = false
 ) {
+    val cs = MaterialTheme.colorScheme
+    val inset = insetColor()
     OutlinedTextField(
         value = value, onValueChange = onChange,
         label = { Text(label) },
         singleLine = singleLine, minLines = minLines,
         visualTransformation = if (password) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         keyboardOptions = KeyboardOptions(keyboardType = if (number) KeyboardType.Decimal else KeyboardType.Text),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = inset, unfocusedContainerColor = inset,
+            focusedBorderColor = cs.primary, unfocusedBorderColor = cs.outlineVariant.copy(alpha = .6f)
+        ),
         modifier = modifier.fillMaxWidth()
     )
 }
@@ -184,18 +209,21 @@ fun SearchField(
     onSearch: () -> Unit = {}
 ) {
     val cs = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(50)
     Row(
-        modifier.fillMaxWidth().height(50.dp).clip(shape)
-            .background(cs.surfaceVariant.copy(alpha = .55f))
-            .border(1.dp, cs.outlineVariant, shape)
-            .padding(horizontal = 14.dp),
+        modifier.fillMaxWidth().height(54.dp).clip(shape)
+            .background(insetColor())
+            .border(1.dp, cs.outlineVariant.copy(alpha = .7f), shape)
+            .padding(start = 8.dp, end = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Rounded.Search, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        Box(
+            Modifier.size(38.dp).clip(CircleShape).background(cs.primary.copy(alpha = .16f)),
+            contentAlignment = Alignment.Center
+        ) { Icon(Icons.Rounded.Search, null, tint = cs.primary, modifier = Modifier.size(20.dp)) }
         Spacer(Modifier.width(10.dp))
         Box(Modifier.weight(1f)) {
-            if (value.isEmpty()) Text(hint, color = cs.onSurfaceVariant, fontSize = 14.sp)
+            if (value.isEmpty()) Text(hint, color = cs.onSurfaceVariant, fontSize = 14.sp, maxLines = 1)
             BasicTextField(
                 value = value, onValueChange = onChange, singleLine = true,
                 textStyle = TextStyle(color = cs.onSurface, fontSize = 15.sp),
@@ -226,25 +254,30 @@ fun ActionButton(
     enabled: Boolean = true
 ) {
     val cs = MaterialTheme.colorScheme
-    val (bg, fg) = when (kind) {
-        BtnKind.PRIMARY -> cs.primary to cs.onPrimary
-        BtnKind.TONAL -> cs.primary.copy(alpha = .16f) to cs.primary
-        BtnKind.DANGER -> cs.error to cs.onError
-        BtnKind.GHOST -> Color.Transparent to cs.onSurface
+    val shape = RoundedCornerShape(18.dp)
+    val fg = when (kind) {
+        BtnKind.PRIMARY -> cs.onPrimary
+        BtnKind.TONAL -> cs.primary
+        BtnKind.DANGER -> cs.onError
+        BtnKind.GHOST -> cs.onSurface
     }
-    val shape = RoundedCornerShape(14.dp)
+    var m: Modifier = modifier.heightIn(min = 48.dp)
+    m = when (kind) {
+        BtnKind.PRIMARY ->
+            if (enabled) m.shadow(10.dp, shape, ambientColor = cs.primary, spotColor = cs.primary).clip(shape).background(accentBrush())
+            else m.clip(shape).background(cs.surfaceVariant)
+        BtnKind.TONAL -> m.raised(shape)
+        BtnKind.DANGER -> m.clip(shape).background(if (enabled) cs.error else cs.surfaceVariant)
+        BtnKind.GHOST -> m.clip(shape).border(1.dp, cs.outlineVariant, shape)
+    }
     Row(
-        modifier.heightIn(min = 46.dp).clip(shape)
-            .background(if (enabled) bg else cs.surfaceVariant)
-            .then(if (kind == BtnKind.GHOST) Modifier.border(1.dp, cs.outlineVariant, shape) else Modifier)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+        m.clickable(enabled = enabled, onClick = onClick).padding(horizontal = 18.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (icon != null) {
-            Icon(icon, null, Modifier.size(18.dp), tint = if (enabled) fg else cs.outline)
-            Spacer(Modifier.width(6.dp))
+            Icon(icon, null, Modifier.size(19.dp), tint = if (enabled) fg else cs.outline)
+            Spacer(Modifier.width(7.dp))
         }
         Text(text, color = if (enabled) fg else cs.outline, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
     }
@@ -252,23 +285,24 @@ fun ActionButton(
 
 @Composable
 fun KpiTile(label: String, value: String, icon: ImageVector, color: Color, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
-    AppCard(modifier = modifier, onClick = onClick, pad = 14.dp) {
+    AppCard(modifier = modifier, onClick = onClick, pad = 16.dp) {
         Box(
-            Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(color.copy(alpha = .18f)),
+            Modifier.size(40.dp).clip(CircleShape).background(color.copy(alpha = .16f))
+                .border(1.dp, color.copy(alpha = .30f), CircleShape),
             contentAlignment = Alignment.Center
-        ) { Icon(icon, null, tint = color, modifier = Modifier.size(19.dp)) }
-        Spacer(Modifier.height(10.dp))
-        Text(value, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        ) { Icon(icon, null, tint = color, modifier = Modifier.size(20.dp)) }
+        Spacer(Modifier.height(12.dp))
+        Text(value, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }
 
 @Composable
 fun ScreenHeader(title: String, subtitle: String? = null, trailing: (@Composable () -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
-            if (subtitle != null) Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            Text(title, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (subtitle != null) Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, maxLines = 1)
         }
         trailing?.invoke()
     }
@@ -304,7 +338,9 @@ fun ConfirmDialog(
     val cs = MaterialTheme.colorScheme
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title, fontWeight = FontWeight.Bold) },
+        containerColor = cs.surface,
+        shape = RoundedCornerShape(28.dp),
+        title = { Text(title, fontWeight = FontWeight.ExtraBold) },
         text = {
             Column(
                 Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
@@ -316,28 +352,34 @@ fun ConfirmDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(confirmText, color = if (danger) cs.error else cs.primary, fontWeight = FontWeight.Bold)
-            }
+            ActionButton(confirmText, onConfirm, kind = if (danger) BtnKind.DANGER else BtnKind.PRIMARY)
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("انصراف") } }
+        dismissButton = { ActionButton("انصراف", onDismiss, kind = BtnKind.GHOST) }
     )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppSheet(onDismiss: () -> Unit, title: String? = null, content: @Composable ColumnScope.() -> Unit) {
+    val cs = MaterialTheme.colorScheme
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = cs.surface,
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        dragHandle = {
+            Box(
+                Modifier.padding(top = 12.dp, bottom = 6.dp).width(44.dp).height(5.dp)
+                    .clip(RoundedCornerShape(50)).background(cs.outlineVariant)
+            )
+        }
     ) {
         Column(
-            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp)
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 18.dp)
                 .verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (title != null) Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            if (title != null) Text(title, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
             content()
         }
     }
@@ -375,6 +417,32 @@ fun CategoryPicker(
                     fontSize = 13.sp, color = if (on) cs.onPrimary else cs.onSurface
                 )
             }
+        }
+    }
+}
+
+/** بخش جمع‌شونده: عنوان + خلاصه، با لمس باز می‌شود. */
+@Composable
+fun Section(title: String, summary: String = "", startOpen: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    var open by remember { mutableStateOf(startOpen) }
+    AppCard(pad = 0.dp) {
+        Row(
+            Modifier.fillMaxWidth().clickable { open = !open }.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold)
+                if (summary.isNotBlank()) Text(summary, fontSize = 12.sp, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, tint = cs.onSurfaceVariant)
+        }
+        if (open) {
+            Column(
+                Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                content = content
+            )
         }
     }
 }

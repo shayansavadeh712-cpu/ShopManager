@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -79,28 +81,23 @@ fun DashboardTab(woo: WooState) {
     val cs = MaterialTheme.colorScheme
     val st = woo.stats
     LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 130.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 150.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
             ScreenHeader(woo.displayShopName.ifBlank { "فروشگاه" }, greeting()) {
                 IconBox(Icons.Rounded.Refresh) { woo.refreshAll() }
             }
         }
+        item { SalesHero(woo, st) }
         item {
-            AppCard {
-                Text("فروش این ماه", color = cs.onSurfaceVariant, fontSize = 12.sp)
-                Text(
-                    if (st != null) "${money(st.salesMonth)} ${woo.currency}" else "...",
-                    fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = cs.primary
-                )
-                if (st != null) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "${fa(st.ordersMonth)} سفارش این ماه · امروز ${money(st.salesToday)} ${woo.currency} (${fa(st.ordersToday)} سفارش)",
-                        fontSize = 12.sp, color = cs.onSurfaceVariant
-                    )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                QuickAction(Icons.Rounded.Inventory2, "محصولات") { woo.tab = 1 }
+                QuickAction(Icons.Rounded.ReceiptLong, "سفارش‌ها") { woo.tab = 3 }
+                QuickAction(Icons.Rounded.RemoveShoppingCart, "ناموجودها") {
+                    woo.resetFilters(); woo.stockF = "outofstock"; woo.tab = 1; woo.loadProducts(true)
                 }
+                QuickAction(Icons.Rounded.People, "مشتری‌ها") { woo.tab = 4 }
             }
         }
         if (st != null) {
@@ -173,6 +170,65 @@ fun DashboardTab(woo: WooState) {
         } else {
             item { SkeletonList(3) }
         }
+    }
+}
+
+@Composable
+private fun SalesHero(woo: WooState, st: ShopStats?) {
+    val cs = MaterialTheme.colorScheme
+    AppCard(pad = 20.dp) {
+        if (st == null) {
+            Skeleton(Modifier.fillMaxWidth().height(130.dp))
+            return@AppCard
+        }
+        val avg = if (st.series.isEmpty()) 0.0 else st.series.map { it.toDouble() }.average()
+        val ratio = if (avg > 0.0) (st.salesToday / avg).toFloat() else 0f
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("فروش امروز", color = cs.onSurfaceVariant, fontSize = 13.sp)
+                Text(money(st.salesToday), fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                Text(woo.currency, color = cs.primary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Pill("${fa(st.ordersToday)} سفارش امروز", Icons.Rounded.ReceiptLong)
+            }
+            RingProgress(ratio, dia = 118.dp, stroke = 11.dp) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        if (avg > 0.0) "٪" + fa((ratio * 100).toInt()) else "—",
+                        fontSize = 20.sp, fontWeight = FontWeight.ExtraBold
+                    )
+                    Text("نسبت به میانگین", fontSize = 9.sp, color = cs.onSurfaceVariant, textAlign = TextAlign.Center)
+                }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        HorizontalDivider(color = cs.outlineVariant)
+        Spacer(Modifier.height(12.dp))
+        Row {
+            Column(Modifier.weight(1f)) {
+                Text("فروش این ماه", color = cs.onSurfaceVariant, fontSize = 12.sp)
+                Text("${money(st.salesMonth)} ${woo.currency}", fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("سفارش این ماه", color = cs.onSurfaceVariant, fontSize = 12.sp)
+                Text(fa(st.ordersMonth), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Column(
+        Modifier.width(78.dp).clip(RoundedCornerShape(20.dp)).clickable(onClick = onClick).padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(Modifier.size(60.dp).raised(CircleShape), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = cs.primary, modifier = Modifier.size(26.dp))
+        }
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
     }
 }
 
@@ -353,5 +409,39 @@ fun CustomersTab(woo: WooState) {
                 Modifier.fillMaxWidth(), icon = Icons.Rounded.ReceiptLong
             )
         }
+    }
+}
+
+// ───────────────────────── بیشتر ─────────────────────────
+
+@Composable
+private fun MoreItem(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, sub: String, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    AppCard(onClick = onClick, pad = 16.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(48.dp).raised(CircleShape),
+                contentAlignment = Alignment.Center
+            ) { Icon(icon, null, tint = cs.primary) }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                Text(sub, fontSize = 12.sp, color = cs.onSurfaceVariant)
+            }
+            Icon(Icons.Rounded.ChevronLeft, null, tint = cs.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+fun MoreTab(woo: WooState) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 130.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        ScreenHeader("بیشتر")
+        MoreItem(Icons.Rounded.Category, "دسته‌ها و برندها", "ساخت و ویرایش، دیدن محصولات هر دسته") { woo.tab = 2 }
+        MoreItem(Icons.Rounded.People, "مشتری‌ها", "لیست مشتری‌ها و سفارش‌هایشان") { woo.tab = 4 }
+        MoreItem(Icons.Rounded.Settings, "تنظیمات", "اعلان‌ها، اطلاعات فاکتور، ظاهر برنامه، حساب") { woo.tab = 5 }
     }
 }

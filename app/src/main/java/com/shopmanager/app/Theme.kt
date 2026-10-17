@@ -34,34 +34,36 @@ fun hsv(h: Float, s: Float, v: Float): Color =
 
 fun buildScheme(h: Float, dark: Boolean, amoled: Boolean): ColorScheme {
     return if (dark) {
-        val bg = if (amoled) Color.Black else hsv(h, .14f, .055f)
-        val surf = if (amoled) Color.Black else hsv(h, .12f, .075f)
+        val bg = if (amoled) Color.Black else hsv(h, .24f, .085f)
+        val surf = if (amoled) hsv(h, .20f, .06f) else hsv(h, .22f, .120f)
         darkColorScheme(
-            primary = hsv(h, .80f, 1f), onPrimary = hsv(h, .95f, .13f),
-            primaryContainer = hsv(h, .88f, .40f), onPrimaryContainer = hsv(h, .10f, 1f),
-            secondary = hsv(h + 18, .45f, .95f), onSecondary = hsv(h + 18, .9f, .2f),
-            secondaryContainer = hsv(h + 18, .5f, .26f), onSecondaryContainer = hsv(h + 18, .12f, 1f),
-            tertiary = hsv(h + 26, .72f, 1f), onTertiary = hsv(h + 26, .9f, .2f),
-            tertiaryContainer = hsv(h + 26, .7f, .38f), onTertiaryContainer = hsv(h + 26, .12f, 1f),
-            background = bg, onBackground = hsv(h, .04f, .95f),
-            surface = surf, onSurface = hsv(h, .04f, .95f),
-            surfaceVariant = if (amoled) hsv(h, .16f, .10f) else hsv(h, .14f, .115f),
-            onSurfaceVariant = hsv(h, .08f, .74f),
-            outline = hsv(h, .12f, .45f), outlineVariant = hsv(h, .16f, .20f),
-            error = Color(0xFFFF5C5C)
+            primary = hsv(h, .68f, 1f), onPrimary = hsv(h, .90f, .10f),
+            primaryContainer = hsv(h, .80f, .46f), onPrimaryContainer = hsv(h, .10f, 1f),
+            secondary = hsv(h + 14, .40f, .95f), onSecondary = hsv(h + 14, .9f, .2f),
+            secondaryContainer = hsv(h + 14, .45f, .28f), onSecondaryContainer = hsv(h + 14, .12f, 1f),
+            tertiary = hsv(h + 42, .52f, 1f), onTertiary = hsv(h + 42, .9f, .2f),
+            tertiaryContainer = hsv(h + 42, .6f, .40f), onTertiaryContainer = hsv(h + 42, .12f, 1f),
+            background = bg, onBackground = hsv(h, .03f, .96f),
+            surface = surf, onSurface = hsv(h, .03f, .96f),
+            surfaceVariant = if (amoled) hsv(h, .20f, .115f) else hsv(h, .20f, .165f),
+            onSurfaceVariant = hsv(h, .10f, .72f),
+            outline = hsv(h, .12f, .46f), outlineVariant = hsv(h, .16f, .23f),
+            inverseSurface = hsv(h, .05f, .92f), inverseOnSurface = hsv(h, .3f, .15f),
+            inversePrimary = hsv(h, .8f, .55f),
+            error = Color(0xFFFF6B6B)
         )
     } else {
         lightColorScheme(
-            primary = hsv(h, .72f, .72f), onPrimary = Color.White,
+            primary = hsv(h, .78f, .84f), onPrimary = Color.White,
             primaryContainer = hsv(h, .16f, 1f), onPrimaryContainer = hsv(h, .9f, .30f),
-            secondary = hsv(h + 35, .6f, .70f), onSecondary = Color.White,
-            secondaryContainer = hsv(h + 35, .14f, 1f), onSecondaryContainer = hsv(h + 35, .9f, .3f),
-            tertiary = hsv(h + 85, .6f, .70f), onTertiary = Color.White,
-            tertiaryContainer = hsv(h + 85, .14f, 1f), onTertiaryContainer = hsv(h + 85, .9f, .3f),
-            background = hsv(h, .03f, .99f), onBackground = hsv(h, .5f, .14f),
-            surface = Color.White, onSurface = hsv(h, .5f, .14f),
-            surfaceVariant = hsv(h, .07f, .95f), onSurfaceVariant = hsv(h, .2f, .35f),
-            outline = hsv(h, .15f, .60f), outlineVariant = hsv(h, .10f, .85f),
+            secondary = hsv(h + 20, .5f, .78f), onSecondary = Color.White,
+            secondaryContainer = hsv(h + 20, .14f, 1f), onSecondaryContainer = hsv(h + 20, .9f, .3f),
+            tertiary = hsv(h + 44, .55f, .85f), onTertiary = Color.White,
+            tertiaryContainer = hsv(h + 44, .14f, 1f), onTertiaryContainer = hsv(h + 44, .9f, .3f),
+            background = hsv(h, .045f, .94f), onBackground = hsv(h, .5f, .14f),
+            surface = hsv(h, .03f, .985f), onSurface = hsv(h, .5f, .14f),
+            surfaceVariant = hsv(h, .05f, .915f), onSurfaceVariant = hsv(h, .2f, .36f),
+            outline = hsv(h, .15f, .60f), outlineVariant = hsv(h, .10f, .84f),
             error = Color(0xFFD93B3B)
         )
     }

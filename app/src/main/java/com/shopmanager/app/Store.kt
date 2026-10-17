@@ -41,11 +41,11 @@ class Pref<T : Any>(
 
 class AppSettings(ctx: Context) {
     private val sp = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
-    val hue = Pref(sp, "hue2", 14f)
-    val themeMode = Pref(sp, "mode2", 2) // 0 سیستم، 1 روشن، 2 تیره، 3 آمولد
-    val radius = Pref(sp, "radius2", 14)
+    val hue = Pref(sp, "hue3", 215f)
+    val themeMode = Pref(sp, "mode3", 2) // 0 سیستم، 1 روشن، 2 تیره، 3 آمولد
+    val radius = Pref(sp, "radius3", 24)
     val fontScale = Pref(sp, "fs", 1f)
-    val cardStyle = Pref(sp, "card2", 1) // 0 شیشه‌ای، 1 توپر، 2 خطی
+    val cardStyle = Pref(sp, "card3", 0) // 0 نرم و برجسته، 1 توپر، 2 خطی
     val gradientBg = Pref(sp, "grad2", false)
     val rtl = Pref(sp, "rtl", true)
     val clockStyle = Pref(sp, "clock2", 1)
