@@ -135,6 +135,7 @@ data class WProduct(
     val date: String = "",
     val dateGmt: String = "",
     val schedDate: String = "",
+    val schedGmt: String = "",
     val brandIds: List<Long> = emptyList(),
     val brandNames: List<String> = emptyList()
 ) {
@@ -276,6 +277,7 @@ fun WProduct.toJson(isNew: Boolean, imageChanged: Boolean): JSONObject {
     // زمان‌بندی: وردپرس خودش محصول را با وضعیت publish و تاریخ آینده زمان‌بندی می‌کند
     o.put("status", if (status == "future") "publish" else status)
     if (schedDate.isNotBlank()) o.put("date_created", schedDate)
+    if (schedGmt.isNotBlank()) o.put("date_created_gmt", schedGmt)
     o.put("sku", sku)
     if (priceEditable) {
         o.put("regular_price", regularPrice)
@@ -403,6 +405,26 @@ fun orderDate(s: String): String = try {
     fmtDay(d.toEpochDay()) + t
 } catch (e: Exception) {
     s
+}
+
+/** زمان UTC وردپرس را به ساعت محلی گوشی تبدیل می‌کند. */
+fun gmtLocal(gmt: String): java.time.LocalDateTime? = try {
+    java.time.LocalDateTime.parse(gmt.take(19)).atZone(java.time.ZoneOffset.UTC)
+        .withZoneSameInstant(java.time.ZoneId.systemDefault()).toLocalDateTime()
+} catch (e: Exception) {
+    null
+}
+
+/** زمان انتخاب‌شده روی گوشی ← (ساعت محلی سایت، UTC) برای ارسال به وردپرس. */
+fun deviceToSite(local: String, siteOffsetSec: Int?): Pair<String, String> = try {
+    val inst = java.time.LocalDateTime.parse(local).atZone(java.time.ZoneId.systemDefault()).toInstant()
+    val gmt = java.time.LocalDateTime.ofInstant(inst, java.time.ZoneOffset.UTC)
+    val site = if (siteOffsetSec != null) gmt.plusSeconds(siteOffsetSec.toLong())
+    else java.time.LocalDateTime.ofInstant(inst, java.time.ZoneId.systemDefault())
+    val f = java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME
+    Pair(site.withNano(0).format(f), gmt.withNano(0).format(f))
+} catch (e: Exception) {
+    Pair("", "")
 }
 
 fun priceText(s: String): String = s.toDoubleOrNull()?.let { money(it) } ?: "—"
@@ -769,9 +791,11 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
     var minPrice by mutableStateOf("")
     var maxPrice by mutableStateOf("")
     var viewGrid by mutableStateOf(false)
+    var siteOffsetSec by mutableStateOf<Int?>(null)
 
     val activeFilterCount: Int
         get() = listOf(
+            statusF != "any", stockF.isNotEmpty(),
             typeF.isNotEmpty(), onSaleF, featuredF,
             minPrice.isNotBlank(), maxPrice.isNotBlank(), catF != 0L
         ).count { it }
@@ -997,6 +1021,16 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
                 for (i in 0 until arr.length()) list.add(parseProduct(arr.getJSONObject(i)))
                 if (reset) products.clear()
                 products.addAll(list)
+                if (siteOffsetSec == null) {
+                    siteOffsetSec = list.firstNotNullOfOrNull { p ->
+                        try {
+                            (java.time.LocalDateTime.parse(p.date.take(19)).toEpochSecond(java.time.ZoneOffset.UTC) -
+                                    java.time.LocalDateTime.parse(p.dateGmt.take(19)).toEpochSecond(java.time.ZoneOffset.UTC)).toInt()
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                }
                 page = next
                 pages = r.pages
                 total = r.total
