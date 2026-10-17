@@ -1,11 +1,6 @@
 package com.shopmanager.app
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.net.Uri
-import java.io.ByteArrayOutputStream
-import android.icu.util.Calendar
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -13,7 +8,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CancellationException
@@ -30,8 +24,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.security.KeyStore
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -88,25 +80,16 @@ data class WCat(
     val name: String,
     val count: Int = 0,
     val parent: Long = 0,
-    val image: String = "",
-    val depth: Int = 0
+    val description: String = ""
 )
 
-fun orderCats(list: List<WCat>): List<WCat> {
-    val ids = list.map { it.id }.toSet()
-    val byParent = list.groupBy { if (ids.contains(it.parent)) it.parent else 0L }
-    val out = ArrayList<WCat>()
-    fun walk(parent: Long, depth: Int) {
-        if (depth > 6) return
-        val kids = (byParent[parent] ?: emptyList()).sortedBy { it.name }
-        for (k in kids) {
-            out.add(k.copy(depth = depth))
-            walk(k.id, depth + 1)
-        }
-    }
-    walk(0L, 0)
-    return out
-}
+data class WAttr(
+    val id: Long = 0,
+    val name: String = "",
+    val options: List<String> = emptyList(),
+    val variation: Boolean = true,
+    val visible: Boolean = true
+)
 
 data class WProduct(
     val id: Long = 0,
@@ -121,7 +104,6 @@ data class WProduct(
     val stockStatus: String = "instock",
     val manageStock: Boolean = false,
     val stockQty: Int? = null,
-    val backorders: String = "no",
     val catIds: List<Long> = emptyList(),
     val catNames: List<String> = emptyList(),
     val image: String = "",
@@ -131,34 +113,10 @@ data class WProduct(
     val weight: String = "",
     val permalink: String = "",
     val totalSales: Int = 0,
-    val varCount: Int = 0
+    val attrs: List<WAttr> = emptyList()
 ) {
     val priceEditable: Boolean get() = type == "simple" || type == "external"
 }
-
-data class WVariation(
-    val id: Long,
-    val parentId: Long,
-    val attrs: String,
-    val sku: String,
-    val regularPrice: String,
-    val salePrice: String,
-    val status: String,
-    val manageStock: Boolean,
-    val stockQty: Int?,
-    val stockStatus: String,
-    val image: String,
-    val newImage: String? = null
-)
-
-data class WLine(
-    val name: String,
-    val sku: String,
-    val qty: Int,
-    val unit: Double,
-    val subtotal: Double,
-    val total: Double
-)
 
 data class WOrder(
     val id: Long,
@@ -167,30 +125,10 @@ data class WOrder(
     val total: String,
     val date: String,
     val customer: String,
-    val customerId: Long,
     val phone: String,
-    val email: String,
-    val billingAddr: String,
-    val shippingAddr: String,
-    val lines: List<WLine>,
-    val shippingTotal: Double,
-    val discountTotal: Double,
-    val taxTotal: Double,
+    val items: List<String>,
     val payment: String,
-    val note: String,
-    val coupons: List<String>
-)
-
-data class WNote(val id: Long, val text: String, val forCustomer: Boolean, val date: String)
-
-data class WCustomer(
-    val id: Long,
-    val name: String,
-    val email: String,
-    val phone: String,
-    val orders: Int,
-    val spent: Double,
-    val date: String
+    val note: String
 )
 
 data class ShopStats(
@@ -198,18 +136,12 @@ data class ShopStats(
     val published: Int,
     val drafts: Int,
     val outOfStock: Int,
-    val salesMonth: Double,
+    val sales: Double,
     val ordersMonth: Int,
-    val orderTotals: Map<String, Int>,
-    val series: List<Float>,
-    val seriesLabels: List<String>,
-    val salesToday: Double,
-    val ordersToday: Int,
-    val top: List<Pair<String, Int>>
+    val orderTotals: Map<String, Int>
 )
 
 fun JSONObject.str(k: String): String = if (isNull(k)) "" else optString(k, "")
-fun JSONObject.dbl(k: String): Double = str(k).toDoubleOrNull() ?: 0.0
 
 fun clean(s: String): String =
     android.text.Html.fromHtml(s, android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim()
@@ -225,7 +157,23 @@ fun parseProduct(o: JSONObject): WProduct {
     }
     val imgs = o.optJSONArray("images")
     val img = if (imgs != null && imgs.length() > 0) imgs.getJSONObject(0).str("src") else ""
-    val vars = o.optJSONArray("variations")
+    val atArr = o.optJSONArray("attributes") ?: JSONArray()
+    val attrList = ArrayList<WAttr>()
+    for (i in 0 until atArr.length()) {
+        val a = atArr.getJSONObject(i)
+        val opts = ArrayList<String>()
+        val oa = a.optJSONArray("options") ?: JSONArray()
+        for (j in 0 until oa.length()) opts.add(clean(oa.optString(j)))
+        attrList.add(
+            WAttr(
+                id = a.optLong("id"),
+                name = clean(a.str("name")),
+                options = opts,
+                variation = a.optBoolean("variation", false),
+                visible = a.optBoolean("visible", true)
+            )
+        )
+    }
     return WProduct(
         id = o.optLong("id"),
         name = clean(o.str("name")),
@@ -239,7 +187,6 @@ fun parseProduct(o: JSONObject): WProduct {
         stockStatus = o.str("stock_status").ifBlank { "instock" },
         manageStock = o.optBoolean("manage_stock", false),
         stockQty = if (o.isNull("stock_quantity")) null else o.optInt("stock_quantity"),
-        backorders = o.str("backorders").ifBlank { "no" },
         catIds = ids,
         catNames = names,
         image = img,
@@ -249,8 +196,25 @@ fun parseProduct(o: JSONObject): WProduct {
         weight = o.str("weight"),
         permalink = o.str("permalink"),
         totalSales = o.optInt("total_sales", 0),
-        varCount = vars?.length() ?: 0
+        attrs = attrList
     )
+}
+
+fun attrsToJson(list: List<WAttr>): JSONArray {
+    val arr = JSONArray()
+    list.forEachIndexed { i, a ->
+        val x = JSONObject()
+        if (a.id > 0) x.put("id", a.id)
+        x.put("name", a.name)
+        x.put("position", i)
+        x.put("visible", a.visible)
+        x.put("variation", a.variation)
+        val opts = JSONArray()
+        a.options.forEach { opts.put(it) }
+        x.put("options", opts)
+        arr.put(x)
+    }
+    return arr
 }
 
 fun WProduct.toJson(isNew: Boolean, imageChanged: Boolean): JSONObject {
@@ -265,7 +229,6 @@ fun WProduct.toJson(isNew: Boolean, imageChanged: Boolean): JSONObject {
     o.put("manage_stock", manageStock)
     if (manageStock) o.put("stock_quantity", stockQty ?: 0)
     o.put("stock_status", stockStatus)
-    o.put("backorders", backorders)
     o.put("featured", featured)
     o.put("description", description)
     o.put("short_description", shortDescription)
@@ -273,7 +236,8 @@ fun WProduct.toJson(isNew: Boolean, imageChanged: Boolean): JSONObject {
     val arr = JSONArray()
     catIds.forEach { arr.put(JSONObject().put("id", it)) }
     o.put("categories", arr)
-    if (isNew) o.put("type", type)
+    if (isNew) o.put("type", if (type == "variable") "variable" else "simple")
+    if (type == "variable" && attrs.isNotEmpty()) o.put("attributes", attrsToJson(attrs))
     if (imageChanged) {
         val imgs = JSONArray()
         if (image.isNotBlank()) imgs.put(JSONObject().put("src", image))
@@ -282,77 +246,15 @@ fun WProduct.toJson(isNew: Boolean, imageChanged: Boolean): JSONObject {
     return o
 }
 
-fun parseVariation(o: JSONObject, pid: Long): WVariation {
-    val at = o.optJSONArray("attributes") ?: JSONArray()
-    val parts = ArrayList<String>()
-    for (i in 0 until at.length()) {
-        val a = at.getJSONObject(i)
-        val opt = a.str("option")
-        parts.add(if (opt.isBlank()) "هر ${a.str("name")}" else "${a.str("name")}: $opt")
-    }
-    val img = o.optJSONObject("image")?.str("src") ?: ""
-    return WVariation(
-        id = o.optLong("id"),
-        parentId = pid,
-        attrs = parts.joinToString(" · ").ifBlank { "تنوع ${o.optLong("id")}" },
-        sku = o.str("sku"),
-        regularPrice = o.str("regular_price"),
-        salePrice = o.str("sale_price"),
-        status = o.str("status").ifBlank { "publish" },
-        manageStock = o.optBoolean("manage_stock", false),
-        stockQty = if (o.isNull("stock_quantity")) null else o.optInt("stock_quantity"),
-        stockStatus = o.str("stock_status").ifBlank { "instock" },
-        image = img
-    )
-}
-
-fun WVariation.toJson(): JSONObject {
-    val o = JSONObject()
-    o.put("regular_price", regularPrice)
-    o.put("sale_price", salePrice)
-    o.put("sku", sku)
-    o.put("status", status)
-    o.put("manage_stock", manageStock)
-    if (manageStock) o.put("stock_quantity", stockQty ?: 0)
-    o.put("stock_status", stockStatus)
-    newImage?.let { u ->
-        val id = ImageIds.map[u]
-        o.put("image", if (id != null && id > 0) JSONObject().put("id", id) else JSONObject().put("src", u))
-    }
-    return o
-}
-
-object ImageIds {
-    val map = HashMap<String, Long>()
-}
-
-fun addrOf(b: JSONObject?): String {
-    if (b == null) return ""
-    return listOf(b.str("address_1"), b.str("address_2"), b.str("city"), b.str("state"), b.str("postcode"))
-        .filter { it.isNotBlank() }.joinToString("، ")
-}
-
 fun parseOrder(o: JSONObject): WOrder {
     val b = o.optJSONObject("billing")
-    val sh = o.optJSONObject("shipping")
     val name = if (b != null) "${b.str("first_name")} ${b.str("last_name")}".trim() else ""
     val li = o.optJSONArray("line_items") ?: JSONArray()
-    val lines = ArrayList<WLine>()
+    val items = ArrayList<String>()
     for (i in 0 until li.length()) {
         val x = li.getJSONObject(i)
-        val q = x.optInt("quantity", 1)
-        val st = x.dbl("subtotal")
-        lines.add(
-            WLine(
-                clean(x.str("name")), x.str("sku"), q,
-                if (q > 0) st / q else 0.0, st, x.dbl("total")
-            )
-        )
+        items.add("${clean(x.str("name"))} × ${x.optInt("quantity")}")
     }
-    val cl = o.optJSONArray("coupon_lines") ?: JSONArray()
-    val coupons = ArrayList<String>()
-    for (i in 0 until cl.length()) coupons.add(cl.getJSONObject(i).str("code"))
-    val shipAddr = addrOf(sh).ifBlank { addrOf(b) }
     return WOrder(
         id = o.optLong("id"),
         number = o.str("number").ifBlank { o.optLong("id").toString() },
@@ -360,23 +262,15 @@ fun parseOrder(o: JSONObject): WOrder {
         total = o.str("total"),
         date = orderDate(o.str("date_created")),
         customer = name.ifBlank { "مهمان" },
-        customerId = o.optLong("customer_id"),
         phone = b?.str("phone") ?: "",
-        email = b?.str("email") ?: "",
-        billingAddr = addrOf(b),
-        shippingAddr = shipAddr,
-        lines = lines,
-        shippingTotal = o.dbl("shipping_total"),
-        discountTotal = o.dbl("discount_total"),
-        taxTotal = o.dbl("total_tax"),
+        items = items,
         payment = o.str("payment_method_title"),
-        note = o.str("customer_note"),
-        coupons = coupons
+        note = o.str("customer_note")
     )
 }
 
 fun orderDate(s: String): String = try {
-    val d = LocalDate.parse(s.take(10))
+    val d = java.time.LocalDate.parse(s.take(10))
     val t = if (s.length >= 16) " " + fa(s.substring(11, 16)) else ""
     fmtDay(d.toEpochDay()) + t
 } catch (e: Exception) {
@@ -499,7 +393,6 @@ fun friendly(e: Throwable): String = when (e) {
 // ───────────────────────── ویرایش گروهی ─────────────────────────
 
 enum class Mode { SET, PCT_UP, PCT_DOWN, AMT_UP, AMT_DOWN }
-enum class CatMode { ADD, REPLACE, REMOVE }
 
 sealed interface BulkOp
 data class BPrice(val sale: Boolean, val mode: Mode, val value: Double, val round: Int) : BulkOp
@@ -508,125 +401,89 @@ data object BClearSale : BulkOp
 data class BStatus(val status: String) : BulkOp
 data class BStockStatus(val status: String) : BulkOp
 data class BQty(val add: Boolean, val value: Int) : BulkOp
-data class BCats(val ids: List<Long>, val mode: CatMode) : BulkOp
+data class BCats(val ids: List<Long>, val replace: Boolean) : BulkOp
 data class BFeatured(val on: Boolean) : BulkOp
-data class BBackorders(val value: String) : BulkOp
-data class BName(val find: String, val replace: String, val prefix: String, val suffix: String) : BulkOp
 data class BDelete(val permanent: Boolean) : BulkOp
 
-class Change(
-    val id: Long,
-    val name: String,
-    val json: JSONObject,
-    val desc: String,
-    val viaVariations: Boolean = false,
-    val parentId: Long = 0
-)
-
-private fun regularFor(op: BPrice, regular: String, sale: String): Pair<JSONObject, String>? {
-    val old = (if (op.sale) sale else regular).toDoubleOrNull()
-    var nv: Double
-    if (op.mode == Mode.SET) {
-        nv = op.value
-    } else {
-        if (old == null) return null
-        nv = when (op.mode) {
-            Mode.PCT_UP -> old * (1 + op.value / 100.0)
-            Mode.PCT_DOWN -> old * (1 - op.value / 100.0)
-            Mode.AMT_UP -> old + op.value
-            else -> old - op.value
-        }
-    }
-    nv = roundStep(nv, op.round)
-    if (nv < 0) return null
-    if (op.sale) {
-        val reg = regular.toDoubleOrNull() ?: return null
-        if (nv >= reg) return null
-    }
-    if (old != null && old == nv) return null
-    val j = JSONObject()
-    j.put(if (op.sale) "sale_price" else "regular_price", fmtPrice(nv))
-    return Pair(j, "از ${if (old != null) money(old) else "—"} به ${money(nv)}")
-}
-
-private fun salePctFor(op: BSalePct, regular: String, sale: String): Pair<JSONObject, String>? {
-    val reg = regular.toDoubleOrNull() ?: return null
-    val nv = roundStep(reg * (1 - op.percent / 100.0), op.round)
-    if (nv <= 0 || nv >= reg) return null
-    if (sale.toDoubleOrNull() == nv) return null
-    val j = JSONObject()
-    j.put("sale_price", fmtPrice(nv))
-    return Pair(j, "حراج ${money(nv)} (از ${money(reg)})")
-}
-
-fun priceJson(op: BulkOp, regular: String, sale: String): Pair<JSONObject, String>? = when (op) {
-    is BPrice -> regularFor(op, regular, sale)
-    is BSalePct -> salePctFor(op, regular, sale)
-    is BClearSale -> if (sale.isBlank()) null else Pair(JSONObject().put("sale_price", ""), "پایان حراج")
-    else -> null
-}
+class Change(val id: Long, val name: String, val json: JSONObject, val desc: String)
 
 fun planBulk(p: WProduct, op: BulkOp): Change? {
-    return when (op) {
-        is BPrice, is BSalePct, is BClearSale -> {
-            if (p.type == "variable") {
-                Change(p.id, p.name, JSONObject(), "همهٔ تنوع‌ها", viaVariations = true)
+    val j = JSONObject()
+    var desc = ""
+    when (op) {
+        is BPrice -> {
+            if (!p.priceEditable) return null
+            val old = (if (op.sale) p.salePrice else p.regularPrice).toDoubleOrNull()
+            var nv: Double
+            if (op.mode == Mode.SET) {
+                nv = op.value
             } else {
-                if (!p.priceEditable) return null
-                val r = priceJson(op, p.regularPrice, p.salePrice) ?: return null
-                Change(p.id, p.name, r.first, r.second)
+                if (old == null) return null
+                nv = when (op.mode) {
+                    Mode.PCT_UP -> old * (1 + op.value / 100.0)
+                    Mode.PCT_DOWN -> old * (1 - op.value / 100.0)
+                    Mode.AMT_UP -> old + op.value
+                    else -> old - op.value
+                }
             }
+            nv = roundStep(nv, op.round)
+            if (nv < 0) return null
+            if (op.sale) {
+                val reg = p.regularPrice.toDoubleOrNull() ?: return null
+                if (nv >= reg) return null
+            }
+            if (old != null && old == nv) return null
+            j.put(if (op.sale) "sale_price" else "regular_price", fmtPrice(nv))
+            desc = "از ${if (old != null) money(old) else "—"} به ${money(nv)}"
+        }
+        is BSalePct -> {
+            if (!p.priceEditable) return null
+            val reg = p.regularPrice.toDoubleOrNull() ?: return null
+            val nv = roundStep(reg * (1 - op.percent / 100.0), op.round)
+            if (nv <= 0 || nv >= reg) return null
+            if (p.salePrice.toDoubleOrNull() == nv) return null
+            j.put("sale_price", fmtPrice(nv))
+            desc = "حراج ${money(nv)} (از ${money(reg)})"
+        }
+        is BClearSale -> {
+            if (!p.priceEditable || p.salePrice.isBlank()) return null
+            j.put("sale_price", "")
+            desc = "پایان حراج"
         }
         is BStatus -> {
             if (p.status == op.status) return null
-            Change(p.id, p.name, JSONObject().put("status", op.status), "وضعیت: ${statusFa(op.status)}")
+            j.put("status", op.status)
+            desc = "وضعیت: ${statusFa(op.status)}"
         }
         is BStockStatus -> {
             if (p.stockStatus == op.status) return null
-            Change(p.id, p.name, JSONObject().put("stock_status", op.status), "موجودی: ${stockFa(op.status)}")
+            j.put("stock_status", op.status)
+            desc = "موجودی: ${stockFa(op.status)}"
         }
         is BQty -> {
             val cur = p.stockQty ?: 0
             val nq = (if (op.add) cur + op.value else op.value).coerceAtLeast(0)
             if (p.manageStock && p.stockQty == nq) return null
-            val j = JSONObject()
             j.put("manage_stock", true)
             j.put("stock_quantity", nq)
-            Change(p.id, p.name, j, "تعداد ${fa(cur)} به ${fa(nq)}")
+            desc = "تعداد ${fa(cur)} به ${fa(nq)}"
         }
         is BCats -> {
-            val ids = when (op.mode) {
-                CatMode.REPLACE -> op.ids
-                CatMode.ADD -> (p.catIds + op.ids).distinct()
-                CatMode.REMOVE -> p.catIds.filter { !op.ids.contains(it) }
-            }
+            val ids = if (op.replace) op.ids else (p.catIds + op.ids).distinct()
             if (ids == p.catIds) return null
             val arr = JSONArray()
             ids.forEach { arr.put(JSONObject().put("id", it)) }
-            Change(p.id, p.name, JSONObject().put("categories", arr), "${fa(ids.size)} دسته")
+            j.put("categories", arr)
+            desc = "${fa(ids.size)} دسته"
         }
         is BFeatured -> {
             if (p.featured == op.on) return null
-            Change(p.id, p.name, JSONObject().put("featured", op.on), if (op.on) "ویژه" else "حذف از ویژه‌ها")
+            j.put("featured", op.on)
+            desc = if (op.on) "ویژه" else "حذف از ویژه‌ها"
         }
-        is BBackorders -> {
-            if (p.backorders == op.value) return null
-            val label = when (op.value) {
-                "yes" -> "مجاز"
-                "notify" -> "مجاز با اطلاع به مشتری"
-                else -> "غیرمجاز"
-            }
-            Change(p.id, p.name, JSONObject().put("backorders", op.value), "پیش‌سفارش: $label")
-        }
-        is BName -> {
-            var n = p.name
-            if (op.find.isNotEmpty()) n = n.replace(op.find, op.replace)
-            n = op.prefix + n + op.suffix
-            if (n == p.name || n.isBlank()) return null
-            Change(p.id, p.name, JSONObject().put("name", n), n)
-        }
-        is BDelete -> null
+        is BDelete -> return null
     }
+    return Change(p.id, p.name, j, desc)
 }
 
 fun oldValue(p: WProduct, k: String): Any = when (k) {
@@ -637,8 +494,6 @@ fun oldValue(p: WProduct, k: String): Any = when (k) {
     "manage_stock" -> p.manageStock
     "stock_quantity" -> p.stockQty ?: JSONObject.NULL
     "featured" -> p.featured
-    "backorders" -> p.backorders
-    "name" -> p.name
     "categories" -> {
         val a = JSONArray()
         p.catIds.forEach { a.put(JSONObject().put("id", it)) }
@@ -684,14 +539,6 @@ fun orderFa(s: String): String = when (s) {
     else -> s
 }
 
-fun typeFa(s: String): String = when (s) {
-    "simple" -> "ساده"
-    "variable" -> "متغیر"
-    "grouped" -> "گروهی"
-    "external" -> "خارجی"
-    else -> s
-}
-
 // ───────────────────────── وضعیت و عملیات فروشگاه ─────────────────────────
 
 class WooState(ctx: Context, private val scope: CoroutineScope) {
@@ -702,32 +549,16 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
     private var booted = false
     private var prodJob: Job? = null
     private var orderJob: Job? = null
-    private var custJob: Job? = null
 
     var siteUrl by mutableStateOf(sp.getString("url", "") ?: "")
         private set
     var currency by mutableStateOf(sp.getString("cur", "تومان") ?: "تومان")
         private set
-    var shopName by mutableStateOf(sp.getString("shop_name", "") ?: "")
-        private set
-    var shopPhone by mutableStateOf(sp.getString("shop_phone", "") ?: "")
-        private set
-    var shopAddr by mutableStateOf(sp.getString("shop_addr", "") ?: "")
-        private set
     var connected by mutableStateOf(false)
         private set
-    var wpUser by mutableStateOf(sp.getString("wu", "") ?: "")
-        private set
-    var wpPass by mutableStateOf(Vault.dec(sp.getString("wp", "") ?: ""))
-        private set
-    val hasWpAuth: Boolean get() = wpUser.isNotBlank() && wpPass.isNotBlank()
 
-    val displayShopName: String get() = shopName.ifBlank { siteUrl.removePrefix("https://") }
+    var shopTab by mutableIntStateOf(0)
 
-    // ناوبری: 0 داشبورد، 1 محصولات، 2 دسته‌ها، 3 سفارش‌ها، 4 مشتری‌ها، 5 تنظیمات
-    var tab by mutableIntStateOf(0)
-
-    // محصولات و فیلترها
     val products = mutableStateListOf<WProduct>()
     var total by mutableIntStateOf(0)
     var page by mutableIntStateOf(0)
@@ -739,21 +570,10 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
     var stockF by mutableStateOf("")
     var catF by mutableLongStateOf(0L)
     var sort by mutableIntStateOf(0)
-    var typeF by mutableStateOf("")
-    var onSaleF by mutableStateOf(false)
-    var featuredF by mutableStateOf(false)
-    var minPrice by mutableStateOf("")
-    var maxPrice by mutableStateOf("")
-    var viewGrid by mutableStateOf(false)
-
-    val activeFilterCount: Int
-        get() = listOf(
-            typeF.isNotEmpty(), onSaleF, featuredF,
-            minPrice.isNotBlank(), maxPrice.isNotBlank(), catF != 0L
-        ).count { it }
-
-    val sel = mutableStateMapOf<Long, WProduct>()
+    val selected = mutableStateListOf<Long>()
     val categories = mutableStateListOf<WCat>()
+    val api: WooClient? get() = cl
+    val mg = ManageState(ctx, scope, this)
 
     var busy by mutableStateOf<String?>(null)
     var message by mutableStateOf<String?>(null)
@@ -762,27 +582,13 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
     var stats by mutableStateOf<ShopStats?>(null)
         private set
 
-    // سفارش‌ها
     val orders = mutableStateListOf<WOrder>()
     var ordersLoading by mutableStateOf(false)
     var ordersError by mutableStateOf<String?>(null)
     var orderStatusF by mutableStateOf("any")
-    var orderQuery by mutableStateOf("")
-    var orderRange by mutableIntStateOf(0)
-    var orderCustomer by mutableLongStateOf(0L)
-    var orderCustomerName by mutableStateOf("")
     private var ordersPage = 0
     private var ordersPages = 0
     val ordersHasMore: Boolean get() = ordersPage in 1 until ordersPages
-
-    // مشتری‌ها
-    val customers = mutableStateListOf<WCustomer>()
-    var customersLoading by mutableStateOf(false)
-    var customersError by mutableStateOf<String?>(null)
-    var customerQuery by mutableStateOf("")
-    private var custPage = 0
-    private var custPages = 0
-    val customersHasMore: Boolean get() = custPage in 1 until custPages
 
     init {
         key = Vault.dec(sp.getString("k", "") ?: "")
@@ -793,20 +599,7 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         }
     }
 
-    private fun go(block: suspend () -> Unit) {
-        scope.launch {
-            try {
-                block()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                message = friendly(e)
-                busy = null
-            }
-        }
-    }
-
-    // ── اتصال
+    // اتصال
     fun connect(url: String, k: String, s: String, cur: String, onResult: (String?) -> Unit) {
         val u = WooClient.normalize(url)
         if (u.startsWith("http://")) {
@@ -847,23 +640,9 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         }
     }
 
-    fun changeCurrency(c: String) {
+    fun saveCurrency(c: String) {
         currency = c.trim().ifBlank { "تومان" }
         sp.edit().putString("cur", currency).apply()
-    }
-
-    fun saveWpAuth(user: String, pass: String) {
-        wpUser = user.trim()
-        wpPass = pass.trim()
-        sp.edit().putString("wu", wpUser).putString("wp", Vault.enc(wpPass)).apply()
-    }
-
-    fun saveShopInfo(name: String, phone: String, addr: String) {
-        shopName = name.trim()
-        shopPhone = phone.trim()
-        shopAddr = addr.trim()
-        sp.edit().putString("shop_name", shopName).putString("shop_phone", shopPhone)
-            .putString("shop_addr", shopAddr).apply()
     }
 
     fun disconnect() {
@@ -872,21 +651,15 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         secret = ""
         cl = null
         siteUrl = ""
-        shopName = ""
-        shopPhone = ""
-        shopAddr = ""
-        wpUser = ""
-        wpPass = ""
         connected = false
         booted = false
         products.clear()
         orders.clear()
-        customers.clear()
         categories.clear()
-        sel.clear()
+        selected.clear()
+        mg.clear()
         stats = null
         undoList = emptyList()
-        tab = 0
     }
 
     fun bootstrap() {
@@ -902,66 +675,35 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         loadStats()
         loadProducts(true)
         if (orders.isNotEmpty()) loadOrders(true)
-        if (customers.isNotEmpty()) loadCustomers(true)
     }
 
-    // ── محصولات
-    private fun productQuery(): LinkedHashMap<String, String> {
-        val q = LinkedHashMap<String, String>()
-        q["status"] = statusF
-        if (query.isNotBlank()) q["search"] = query.trim()
-        if (stockF.isNotEmpty()) q["stock_status"] = stockF
-        if (catF != 0L) q["category"] = catF.toString()
-        if (typeF.isNotEmpty()) q["type"] = typeF
-        if (onSaleF) q["on_sale"] = "true"
-        if (featuredF) q["featured"] = "true"
-        val mn = en(minPrice).trim()
-        val mx = en(maxPrice).trim()
-        if (mn.toDoubleOrNull() != null) q["min_price"] = mn
-        if (mx.toDoubleOrNull() != null) q["max_price"] = mx
-        when (sort) {
-            1 -> { q["orderby"] = "title"; q["order"] = "asc" }
-            2 -> { q["orderby"] = "price"; q["order"] = "asc" }
-            3 -> { q["orderby"] = "price"; q["order"] = "desc" }
-            4 -> { q["orderby"] = "popularity"; q["order"] = "desc" }
-            else -> { q["orderby"] = "date"; q["order"] = "desc" }
-        }
-        return q
-    }
-
-    fun resetFilters() {
-        statusF = "any"
-        stockF = ""
-        catF = 0L
-        typeF = ""
-        onSaleF = false
-        featuredF = false
-        minPrice = ""
-        maxPrice = ""
-        query = ""
-    }
-
-    fun openCategory(id: Long) {
-        resetFilters()
-        catF = id
-        tab = 1
-        loadProducts(true)
-    }
-
+    // محصولات
     fun loadProducts(reset: Boolean = true) {
         val c = cl ?: return
         if (!reset && (loading || page >= pages)) return
         if (reset) {
             prodJob?.cancel()
+            selected.clear()
         }
         val next = if (reset) 1 else page + 1
         loading = true
         error = null
         prodJob = scope.launch {
             try {
-                val q = productQuery()
+                val q = LinkedHashMap<String, String>()
                 q["per_page"] = "30"
                 q["page"] = next.toString()
+                q["status"] = statusF
+                if (query.isNotBlank()) q["search"] = query.trim()
+                if (stockF.isNotEmpty()) q["stock_status"] = stockF
+                if (catF != 0L) q["category"] = catF.toString()
+                when (sort) {
+                    1 -> { q["orderby"] = "title"; q["order"] = "asc" }
+                    2 -> { q["orderby"] = "price"; q["order"] = "asc" }
+                    3 -> { q["orderby"] = "price"; q["order"] = "desc" }
+                    4 -> { q["orderby"] = "popularity"; q["order"] = "desc" }
+                    else -> { q["orderby"] = "date"; q["order"] = "desc" }
+                }
                 val r = c.call("GET", "/products", q)
                 if (!r.ok) throw WooException(r.errorText())
                 val arr = JSONArray(r.body)
@@ -982,110 +724,28 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         }
     }
 
-    fun toggleSelect(p: WProduct) {
-        if (sel.containsKey(p.id)) sel.remove(p.id) else sel[p.id] = p
-    }
-
-    private suspend fun fetchProductPages(c: WooClient, base: Map<String, String>, maxPages: Int, onPage: (List<WProduct>) -> Unit) {
-        var pg = 1
-        while (pg <= maxPages) {
-            val q = LinkedHashMap<String, String>(base)
-            q["per_page"] = "100"
-            q["page"] = pg.toString()
-            val r = c.call("GET", "/products", q)
-            if (!r.ok) throw WooException(r.errorText())
-            val arr = JSONArray(r.body)
-            val list = ArrayList<WProduct>()
-            for (i in 0 until arr.length()) list.add(parseProduct(arr.getJSONObject(i)))
-            onPage(list)
-            if (pg >= r.pages) break
-            pg++
-        }
-    }
-
-    fun selectAllMatching(onDone: (Int) -> Unit = {}) {
-        val c = cl ?: return
-        go {
-            var count = 0
-            busy = "در حال انتخاب نتایج..."
-            fetchProductPages(c, productQuery(), 10) { list ->
-                list.forEach { sel[it.id] = it }
-                count += list.size
-                busy = "در حال انتخاب... ${fa(count)}"
-            }
-            busy = null
-            message = "${fa(count)} محصول انتخاب شد"
-            onDone(count)
-        }
-    }
-
-    fun selectInCategory(catId: Long, onDone: (Int) -> Unit = {}) {
-        val c = cl ?: return
-        go {
-            var count = 0
-            busy = "در حال انتخاب محصولات دسته..."
-            fetchProductPages(c, mapOf("status" to "any", "category" to catId.toString()), 10) { list ->
-                list.forEach { sel[it.id] = it }
-                count += list.size
-            }
-            busy = null
-            message = "${fa(count)} محصول انتخاب شد"
-            onDone(count)
-        }
-    }
-
-    // ── دسته‌ها
     fun loadCategories() {
         val c = cl ?: return
-        go {
-            val all = ArrayList<WCat>()
-            var pg = 1
-            while (pg <= 5) {
-                val r = c.call("GET", "/products/categories", mapOf("per_page" to "100", "page" to pg.toString(), "hide_empty" to "false"))
-                if (!r.ok) break
-                val arr = JSONArray(r.body)
-                for (i in 0 until arr.length()) {
-                    val o = arr.getJSONObject(i)
-                    val im = o.optJSONObject("image")?.str("src") ?: ""
-                    all.add(WCat(o.optLong("id"), clean(o.str("name")), o.optInt("count"), o.optLong("parent"), im))
+        scope.launch {
+            try {
+                val r = c.call("GET", "/products/categories", mapOf("per_page" to "100", "hide_empty" to "false"))
+                if (r.ok) {
+                    val arr = JSONArray(r.body)
+                    val list = ArrayList<WCat>()
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        list.add(WCat(o.optLong("id"), clean(o.str("name")), o.optInt("count"), o.optLong("parent"), clean(o.str("description"))))
+                    }
+                    categories.clear()
+                    categories.addAll(list)
                 }
-                if (pg >= r.pages) break
-                pg++
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
             }
-            categories.clear()
-            categories.addAll(orderCats(all))
         }
     }
 
-    fun saveCategory(id: Long, name: String, parent: Long, onDone: (Boolean) -> Unit) {
-        val c = cl ?: return
-        go {
-            busy = "در حال ذخیرهٔ دسته..."
-            val body = JSONObject().put("name", name).put("parent", parent).toString()
-            val r = if (id == 0L) c.call("POST", "/products/categories", body = body)
-            else c.call("PUT", "/products/categories/$id", body = body)
-            if (!r.ok) throw WooException(r.errorText())
-            message = "دسته ذخیره شد"
-            busy = null
-            loadCategories()
-            onDone(true)
-        }
-    }
-
-    fun deleteCategory(id: Long, onDone: (Boolean) -> Unit) {
-        val c = cl ?: return
-        go {
-            busy = "در حال حذف دسته..."
-            val r = c.call("DELETE", "/products/categories/$id", mapOf("force" to "true"))
-            if (!r.ok) throw WooException(r.errorText())
-            message = "دسته حذف شد"
-            busy = null
-            loadCategories()
-            onDone(true)
-        }
-    }
-
-    // ── آمار
     private suspend fun count(c: WooClient, extra: Map<String, String>): Int {
         return try {
             val q = LinkedHashMap<String, String>(extra)
@@ -1103,59 +763,26 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         val c = cl ?: return
         scope.launch {
             try {
-                val today = LocalDate.now()
-                val from = today.minusDays(13)
                 val st = coroutineScope {
                     val all = async { count(c, mapOf("status" to "any")) }
                     val pub = async { count(c, mapOf("status" to "publish")) }
                     val dr = async { count(c, mapOf("status" to "draft")) }
                     val oos = async { count(c, mapOf("status" to "any", "stock_status" to "outofstock")) }
-                    val month = async {
+                    val sales = async {
                         try { c.call("GET", "/reports/sales", mapOf("period" to "month")) } catch (e: Exception) { null }
-                    }
-                    val days = async {
-                        try {
-                            c.call("GET", "/reports/sales", mapOf("date_min" to from.toString(), "date_max" to today.toString()))
-                        } catch (e: Exception) { null }
                     }
                     val totals = async {
                         try { c.call("GET", "/reports/orders/totals") } catch (e: Exception) { null }
                     }
-                    val topS = async {
-                        try { c.call("GET", "/reports/top_sellers", mapOf("period" to "month")) } catch (e: Exception) { null }
-                    }
                     var salesV = 0.0
                     var ordersV = 0
-                    val mr = month.await()
-                    if (mr != null && mr.ok) {
+                    val sr = sales.await()
+                    if (sr != null && sr.ok) {
                         try {
-                            val o = JSONArray(mr.body).getJSONObject(0)
-                            salesV = o.dbl("total_sales")
+                            val o = JSONArray(sr.body).getJSONObject(0)
+                            salesV = o.str("total_sales").toDoubleOrNull() ?: 0.0
                             ordersV = o.optInt("total_orders")
                         } catch (e: Exception) {
-                        }
-                    }
-                    val series = ArrayList<Float>()
-                    val labels = ArrayList<String>()
-                    var sToday = 0.0
-                    var oToday = 0
-                    val dr2 = days.await()
-                    var totalsObj: JSONObject? = null
-                    if (dr2 != null && dr2.ok) {
-                        try {
-                            totalsObj = JSONArray(dr2.body).getJSONObject(0).optJSONObject("totals")
-                        } catch (e: Exception) {
-                        }
-                    }
-                    for (d in 0..13) {
-                        val day = from.plusDays(d.toLong())
-                        val o = totalsObj?.optJSONObject(day.toString())
-                        val sv = o?.dbl("sales") ?: 0.0
-                        series.add(sv.toFloat())
-                        labels.add(fa(pc(day.toEpochDay()).get(Calendar.DAY_OF_MONTH)))
-                        if (d == 13) {
-                            sToday = sv
-                            oToday = o?.optInt("orders") ?: 0
                         }
                     }
                     val map = LinkedHashMap<String, Int>()
@@ -1170,22 +797,7 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
                         } catch (e: Exception) {
                         }
                     }
-                    val top = ArrayList<Pair<String, Int>>()
-                    val ts = topS.await()
-                    if (ts != null && ts.ok) {
-                        try {
-                            val a = JSONArray(ts.body)
-                            for (i in 0 until minOf(a.length(), 5)) {
-                                val o = a.getJSONObject(i)
-                                top.add(Pair(clean(o.str("name").ifBlank { o.str("title") }), o.optInt("quantity")))
-                            }
-                        } catch (e: Exception) {
-                        }
-                    }
-                    ShopStats(
-                        all.await(), pub.await(), dr.await(), oos.await(), salesV, ordersV,
-                        map, series, labels, sToday, oToday, top
-                    )
+                    ShopStats(all.await(), pub.await(), dr.await(), oos.await(), salesV, ordersV, map)
                 }
                 stats = st
             } catch (e: CancellationException) {
@@ -1195,7 +807,6 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         }
     }
 
-    // ── ذخیره / حذف محصول
     fun save(p: WProduct, imageChanged: Boolean, onDone: (Boolean) -> Unit) {
         val c = cl ?: return
         scope.launch {
@@ -1209,147 +820,9 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
                 val np = parseProduct(JSONObject(r.body))
                 val i = products.indexOfFirst { it.id == np.id }
                 if (i >= 0) products[i] = np else products.add(0, np)
-                if (sel.containsKey(np.id)) sel[np.id] = np
                 message = if (isNew) "محصول ساخته شد" else "ذخیره شد"
                 loadStats()
                 busy = null
-                onDone(true)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                message = friendly(e)
-                busy = null
-                onDone(false)
-            }
-        }
-    }
-
-    // ── آپلود تصویر از گالری (نیاز به Application Password وردپرس)
-    private fun prepareImage(ctx: Context, uri: Uri): ByteArray {
-        val o = BitmapFactory.Options()
-        o.inJustDecodeBounds = true
-        ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o) }
-        var s = 1
-        while (o.outWidth / (s * 2) >= 1600 || o.outHeight / (s * 2) >= 1600) s *= 2
-        val o2 = BitmapFactory.Options()
-        o2.inSampleSize = s
-        val bmp = ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o2) }
-            ?: throw WooException("خواندن تصویر ناموفق بود")
-        val out = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, 88, out)
-        return out.toByteArray()
-    }
-
-    private fun doUpload(ctx: Context, uri: Uri): String {
-        val bytes = prepareImage(ctx, uri)
-        val conn = URL(siteUrl + "/wp-json/wp/v2/media").openConnection() as HttpURLConnection
-        try {
-            conn.requestMethod = "POST"
-            conn.connectTimeout = 15000
-            conn.readTimeout = 90000
-            conn.doOutput = true
-            conn.setFixedLengthStreamingMode(bytes.size)
-            val cred = Base64.encodeToString("$wpUser:$wpPass".toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-            conn.setRequestProperty("Authorization", "Basic $cred")
-            conn.setRequestProperty("Content-Type", "image/jpeg")
-            conn.setRequestProperty("Content-Disposition", "attachment; filename=\"app-${System.currentTimeMillis()}.jpg\"")
-            conn.outputStream.use { it.write(bytes) }
-            val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
-            if (code !in 200..299) {
-                val msg = try { JSONObject(text).optString("message", "") } catch (e: Exception) { "" }
-                throw WooException(
-                    if (code == 401 || code == 403) "آپلود رد شد؛ نام کاربری و Application Password وردپرس را بررسی کن. $msg"
-                    else msg.ifBlank { "آپلود ناموفق ($code)" }
-                )
-            }
-            val j = JSONObject(text)
-            val u = j.getString("source_url")
-            ImageIds.map[u] = j.optLong("id")
-            return u
-        } finally {
-            conn.disconnect()
-        }
-    }
-
-    fun uploadImage(ctx: Context, uri: Uri, onDone: (String?) -> Unit) {
-        if (!hasWpAuth) {
-            message = "برای آپلود از گالری، در تنظیمات «نام کاربری وردپرس» و «Application Password» را وارد کن"
-            onDone(null)
-            return
-        }
-        scope.launch {
-            busy = "در حال آپلود تصویر..."
-            try {
-                val url = withContext(Dispatchers.IO) { doUpload(ctx, uri) }
-                message = "تصویر آپلود شد"
-                busy = null
-                onDone(url)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                message = friendly(e)
-                busy = null
-                onDone(null)
-            }
-        }
-    }
-
-    // ── ساخت محصول متغیر با تنوع‌ها
-    fun createVariable(
-        p: WProduct,
-        attrs: List<Pair<String, List<String>>>,
-        regular: String,
-        sale: String,
-        qty: Int?,
-        onDone: (Boolean) -> Unit
-    ) {
-        val c = cl ?: return
-        scope.launch {
-            try {
-                busy = "در حال ساخت محصول متغیر..."
-                val body = p.toJson(true, p.image.isNotBlank())
-                val aa = JSONArray()
-                attrs.forEachIndexed { i, (n, opts) ->
-                    val oa = JSONArray()
-                    opts.forEach { oa.put(it) }
-                    aa.put(JSONObject().put("name", n).put("position", i).put("visible", true).put("variation", true).put("options", oa))
-                }
-                body.put("attributes", aa)
-                val r = c.call("POST", "/products", body = body.toString())
-                if (!r.ok) throw WooException(r.errorText())
-                val np = parseProduct(JSONObject(r.body))
-                var combos: List<List<Pair<String, String>>> = listOf(emptyList())
-                for ((n, opts) in attrs) combos = combos.flatMap { pre -> opts.map { pre + (n to it) } }
-                var ok = 0
-                for (chunk in combos.chunked(50)) {
-                    busy = "ساخت تنوع‌ها ${fa(ok)} از ${fa(combos.size)}"
-                    val arr = JSONArray()
-                    chunk.forEach { combo ->
-                        val v = JSONObject()
-                        val at = JSONArray()
-                        combo.forEach { (n, o) -> at.put(JSONObject().put("name", n).put("option", o)) }
-                        v.put("attributes", at)
-                        v.put("regular_price", regular)
-                        if (sale.isNotBlank()) v.put("sale_price", sale)
-                        if (qty != null) {
-                            v.put("manage_stock", true)
-                            v.put("stock_quantity", qty)
-                        }
-                        v.put("status", "publish")
-                        arr.put(v)
-                    }
-                    val rr = c.call("POST", "/products/${np.id}/variations/batch", body = JSONObject().put("create", arr).toString())
-                    if (rr.ok) {
-                        val cr = JSONObject(rr.body).optJSONArray("create") ?: JSONArray()
-                        for (i in 0 until cr.length()) if (!cr.getJSONObject(i).has("error")) ok++
-                    }
-                }
-                message = "محصول متغیر ساخته شد؛ ${fa(ok)} از ${fa(combos.size)} تنوع"
-                busy = null
-                loadProducts(true)
-                loadStats()
                 onDone(true)
             } catch (e: CancellationException) {
                 throw e
@@ -1369,7 +842,7 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
                 val r = c.call("DELETE", "/products/${p.id}", mapOf("force" to permanent.toString()))
                 if (!r.ok) throw WooException(r.errorText())
                 products.removeAll { it.id == p.id }
-                sel.remove(p.id)
+                selected.remove(p.id)
                 message = if (permanent) "برای همیشه حذف شد" else "به زباله منتقل شد"
                 loadStats()
                 busy = null
@@ -1384,168 +857,79 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         }
     }
 
-    // ── تنوع‌ها
-    private suspend fun fetchVariations(c: WooClient, pid: Long): List<WVariation> {
-        val out = ArrayList<WVariation>()
-        var pg = 1
-        while (pg <= 10) {
-            val r = c.call("GET", "/products/$pid/variations", mapOf("per_page" to "100", "page" to pg.toString()))
-            if (!r.ok) throw WooException(r.errorText())
-            val arr = JSONArray(r.body)
-            for (i in 0 until arr.length()) out.add(parseVariation(arr.getJSONObject(i), pid))
-            if (pg >= r.pages) break
-            pg++
-        }
-        return out
+    fun toggleSelect(id: Long) {
+        if (selected.contains(id)) selected.remove(id) else selected.add(id)
     }
 
-    fun loadVariations(pid: Long, onDone: (List<WVariation>?) -> Unit) {
+    fun runBulk(chosen: List<WProduct>, op: BulkOp) {
         val c = cl ?: return
         scope.launch {
             try {
-                onDone(fetchVariations(c, pid))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                message = friendly(e)
-                onDone(null)
-            }
-        }
-    }
-
-    fun saveVariations(pid: Long, vars: List<WVariation>, onDone: (Boolean) -> Unit) {
-        val c = cl ?: return
-        scope.launch {
-            try {
+                if (op is BDelete) {
+                    val done = ArrayList<Long>()
+                    var fail = 0
+                    for ((i, p) in chosen.withIndex()) {
+                        busy = "حذف ${fa(i + 1)} از ${fa(chosen.size)}"
+                        val r = c.call("DELETE", "/products/${p.id}", mapOf("force" to op.permanent.toString()))
+                        if (r.ok) done.add(p.id) else fail++
+                    }
+                    products.removeAll { done.contains(it.id) }
+                    selected.clear()
+                    undoList = emptyList()
+                    message = "${fa(done.size)} حذف شد" + (if (fail > 0) "، ${fa(fail)} ناموفق" else "")
+                    loadStats()
+                    busy = null
+                    return@launch
+                }
+                val byId = chosen.associateBy { it.id }
+                val plans = chosen.mapNotNull { planBulk(it, op) }
+                if (plans.isEmpty()) {
+                    message = "چیزی برای تغییر نبود"
+                    return@launch
+                }
                 var ok = 0
                 var fail = 0
-                for (chunk in vars.chunked(50)) {
-                    busy = "ذخیرهٔ تنوع‌ها ${fa(ok + fail)} از ${fa(vars.size)}"
+                val reverts = ArrayList<Change>()
+                for (chunk in plans.chunked(50)) {
+                    busy = "اعمال تغییرات ${fa(ok + fail)} از ${fa(plans.size)}"
                     val arr = JSONArray()
-                    chunk.forEach { arr.put(it.toJson().put("id", it.id)) }
-                    val r = c.call("POST", "/products/$pid/variations/batch", body = JSONObject().put("update", arr).toString())
+                    chunk.forEach {
+                        val j = JSONObject(it.json.toString())
+                        j.put("id", it.id)
+                        arr.put(j)
+                    }
+                    val r = c.call("POST", "/products/batch", body = JSONObject().put("update", arr).toString())
                     if (!r.ok) {
                         fail += chunk.size
                         continue
                     }
                     val upd = JSONObject(r.body).optJSONArray("update") ?: JSONArray()
                     for (i in 0 until upd.length()) {
-                        if (upd.getJSONObject(i).has("error")) fail++ else ok++
+                        val o = upd.getJSONObject(i)
+                        if (o.has("error")) {
+                            fail++
+                        } else {
+                            ok++
+                            val np = parseProduct(o)
+                            val idx = products.indexOfFirst { it.id == np.id }
+                            if (idx >= 0) products[idx] = np
+                            val old = byId[np.id]
+                            val ch = chunk.firstOrNull { it.id == np.id }
+                            if (old != null && ch != null) reverts.add(revertOf(old, ch))
+                        }
                     }
                 }
-                message = "${fa(ok)} تنوع بروز شد" + (if (fail > 0) "، ${fa(fail)} ناموفق" else "")
-                busy = null
-                loadProducts(true)
+                selected.clear()
+                undoList = reverts
+                message = "${fa(ok)} محصول بروز شد" + (if (fail > 0) "، ${fa(fail)} ناموفق" else "")
                 loadStats()
-                onDone(fail == 0)
+                busy = null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 message = friendly(e)
                 busy = null
-                onDone(false)
             }
-        }
-    }
-
-    // ── ویرایش گروهی
-    fun runBulk(chosen: List<WProduct>, op: BulkOp) {
-        val c = cl ?: return
-        go {
-            if (op is BDelete) {
-                val done = ArrayList<Long>()
-                var fail = 0
-                for ((i, p) in chosen.withIndex()) {
-                    busy = "حذف ${fa(i + 1)} از ${fa(chosen.size)}"
-                    val r = c.call("DELETE", "/products/${p.id}", mapOf("force" to op.permanent.toString()))
-                    if (r.ok) done.add(p.id) else fail++
-                }
-                products.removeAll { done.contains(it.id) }
-                sel.clear()
-                undoList = emptyList()
-                message = "${fa(done.size)} حذف شد" + (if (fail > 0) "، ${fa(fail)} ناموفق" else "")
-                loadStats()
-                busy = null
-                return@go
-            }
-            val byId = chosen.associateBy { it.id }
-            val plans = chosen.mapNotNull { planBulk(it, op) }
-            if (plans.isEmpty()) {
-                message = "چیزی برای تغییر نبود"
-                return@go
-            }
-            var ok = 0
-            var fail = 0
-            var firstErr = ""
-            val reverts = ArrayList<Change>()
-            val direct = plans.filter { !it.viaVariations }
-            val viaVar = plans.filter { it.viaVariations }
-
-            for (chunk in direct.chunked(50)) {
-                busy = "اعمال تغییرات ${fa(ok + fail)} از ${fa(plans.size)}"
-                val arr = JSONArray()
-                chunk.forEach { arr.put(JSONObject(it.json.toString()).put("id", it.id)) }
-                val r = c.call("POST", "/products/batch", body = JSONObject().put("update", arr).toString())
-                if (!r.ok) {
-                    fail += chunk.size
-                    if (firstErr.isEmpty()) firstErr = r.errorText()
-                    continue
-                }
-                val upd = JSONObject(r.body).optJSONArray("update") ?: JSONArray()
-                for (i in 0 until upd.length()) {
-                    val o = upd.getJSONObject(i)
-                    if (o.has("error")) {
-                        fail++
-                        if (firstErr.isEmpty()) firstErr = o.optJSONObject("error")?.str("message") ?: ""
-                    } else {
-                        ok++
-                        val np = parseProduct(o)
-                        val idx = products.indexOfFirst { it.id == np.id }
-                        if (idx >= 0) products[idx] = np
-                        val old = byId[np.id]
-                        val ch = chunk.firstOrNull { it.id == np.id }
-                        if (old != null && ch != null) reverts.add(revertOf(old, ch))
-                    }
-                }
-            }
-
-            for (pl in viaVar) {
-                val p = byId[pl.id] ?: continue
-                busy = "تنوع‌های «${p.name}»"
-                val vars = fetchVariations(c, p.id)
-                val ups = ArrayList<JSONObject>()
-                for (v in vars) {
-                    val pj = priceJson(op, v.regularPrice, v.salePrice) ?: continue
-                    ups.add(JSONObject(pj.first.toString()).put("id", v.id))
-                    val rj = JSONObject()
-                    val ks = pj.first.keys()
-                    while (ks.hasNext()) {
-                        val k = ks.next()
-                        rj.put(k, if (k == "sale_price") v.salePrice else v.regularPrice)
-                    }
-                    reverts.add(Change(v.id, v.attrs, rj, "", parentId = p.id))
-                }
-                if (ups.isEmpty()) continue
-                var good = true
-                for (chunk in ups.chunked(50)) {
-                    val arr = JSONArray()
-                    chunk.forEach { arr.put(it) }
-                    val r = c.call("POST", "/products/${p.id}/variations/batch", body = JSONObject().put("update", arr).toString())
-                    if (!r.ok) {
-                        good = false
-                        if (firstErr.isEmpty()) firstErr = r.errorText()
-                    }
-                }
-                if (good) ok++ else fail++
-            }
-
-            sel.clear()
-            undoList = reverts
-            message = "${fa(ok)} محصول بروز شد" + (if (fail > 0) "، ${fa(fail)} ناموفق" else "") +
-                    (if (firstErr.isNotBlank()) "\n$firstErr" else "")
-            if (viaVar.isNotEmpty()) loadProducts(true)
-            loadStats()
-            busy = null
         }
     }
 
@@ -1553,57 +937,45 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         val c = cl ?: return
         val list = undoList
         if (list.isEmpty()) return
-        go {
-            var ok = 0
-            val groups = list.groupBy { it.parentId }
-            for ((pid, items) in groups) {
-                for (chunk in items.chunked(50)) {
+        scope.launch {
+            try {
+                var ok = 0
+                for (chunk in list.chunked(50)) {
                     busy = "بازگردانی..."
                     val arr = JSONArray()
-                    chunk.forEach { arr.put(JSONObject(it.json.toString()).put("id", it.id)) }
-                    val path = if (pid == 0L) "/products/batch" else "/products/$pid/variations/batch"
-                    val r = c.call("POST", path, body = JSONObject().put("update", arr).toString())
+                    chunk.forEach {
+                        val j = JSONObject(it.json.toString())
+                        j.put("id", it.id)
+                        arr.put(j)
+                    }
+                    val r = c.call("POST", "/products/batch", body = JSONObject().put("update", arr).toString())
                     if (r.ok) {
                         val upd = JSONObject(r.body).optJSONArray("update") ?: JSONArray()
                         for (i in 0 until upd.length()) {
                             val o = upd.getJSONObject(i)
                             if (!o.has("error")) {
                                 ok++
-                                if (pid == 0L) {
-                                    val np = parseProduct(o)
-                                    val idx = products.indexOfFirst { it.id == np.id }
-                                    if (idx >= 0) products[idx] = np
-                                }
+                                val np = parseProduct(o)
+                                val idx = products.indexOfFirst { it.id == np.id }
+                                if (idx >= 0) products[idx] = np
                             }
                         }
                     }
                 }
+                undoList = emptyList()
+                message = "${fa(ok)} محصول به حالت قبل برگشت"
+                loadStats()
+                busy = null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message = friendly(e)
+                busy = null
             }
-            undoList = emptyList()
-            message = "${fa(ok)} مورد به حالت قبل برگشت"
-            loadProducts(true)
-            loadStats()
-            busy = null
         }
     }
 
-    // ── سفارش‌ها
-    fun openCustomerOrders(id: Long, name: String) {
-        orderCustomer = id
-        orderCustomerName = name
-        orderStatusF = "any"
-        orderQuery = ""
-        orderRange = 0
-        tab = 3
-        loadOrders(true)
-    }
-
-    fun clearOrderCustomer() {
-        orderCustomer = 0L
-        orderCustomerName = ""
-        loadOrders(true)
-    }
-
+    // سفارش‌ها
     fun loadOrders(reset: Boolean = true) {
         val c = cl ?: return
         if (!reset && (ordersLoading || !ordersHasMore)) return
@@ -1617,18 +989,6 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
                 q["per_page"] = "20"
                 q["page"] = next.toString()
                 q["status"] = orderStatusF
-                if (orderQuery.isNotBlank()) q["search"] = orderQuery.trim()
-                if (orderCustomer != 0L) q["customer"] = orderCustomer.toString()
-                val days = when (orderRange) {
-                    1 -> 0L
-                    2 -> 6L
-                    3 -> 29L
-                    else -> -1L
-                }
-                if (days >= 0) {
-                    val after = LocalDate.now().minusDays(days).atStartOfDay()
-                    q["after"] = after.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                }
                 val r = c.call("GET", "/orders", q)
                 if (!r.ok) throw WooException(r.errorText())
                 val arr = JSONArray(r.body)
@@ -1668,100 +1028,6 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
                 message = friendly(e)
                 busy = null
                 onDone(null)
-            }
-        }
-    }
-
-    fun loadNotes(orderId: Long, onDone: (List<WNote>) -> Unit) {
-        val c = cl ?: return
-        scope.launch {
-            try {
-                val r = c.call("GET", "/orders/$orderId/notes")
-                val list = ArrayList<WNote>()
-                if (r.ok) {
-                    val arr = JSONArray(r.body)
-                    for (i in 0 until arr.length()) {
-                        val o = arr.getJSONObject(i)
-                        list.add(WNote(o.optLong("id"), clean(o.str("note")), o.optBoolean("customer_note"), orderDate(o.str("date_created"))))
-                    }
-                }
-                onDone(list)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                onDone(emptyList())
-            }
-        }
-    }
-
-    fun addNote(orderId: Long, text: String, forCustomer: Boolean, onDone: (Boolean) -> Unit) {
-        val c = cl ?: return
-        scope.launch {
-            busy = "در حال ثبت یادداشت..."
-            try {
-                val body = JSONObject().put("note", text).put("customer_note", forCustomer).toString()
-                val r = c.call("POST", "/orders/$orderId/notes", body = body)
-                if (!r.ok) throw WooException(r.errorText())
-                message = "یادداشت ثبت شد"
-                busy = null
-                onDone(true)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                message = friendly(e)
-                busy = null
-                onDone(false)
-            }
-        }
-    }
-
-    // ── مشتری‌ها
-    fun loadCustomers(reset: Boolean = true) {
-        val c = cl ?: return
-        if (!reset && (customersLoading || !customersHasMore)) return
-        if (reset) custJob?.cancel()
-        val next = if (reset) 1 else custPage + 1
-        customersLoading = true
-        customersError = null
-        custJob = scope.launch {
-            try {
-                val q = LinkedHashMap<String, String>()
-                q["per_page"] = "20"
-                q["page"] = next.toString()
-                q["orderby"] = "registered_date"
-                q["order"] = "desc"
-                q["role"] = "all"
-                if (customerQuery.isNotBlank()) q["search"] = customerQuery.trim()
-                val r = c.call("GET", "/customers", q)
-                if (!r.ok) throw WooException(r.errorText())
-                val arr = JSONArray(r.body)
-                val list = ArrayList<WCustomer>()
-                for (i in 0 until arr.length()) {
-                    val o = arr.getJSONObject(i)
-                    val b = o.optJSONObject("billing")
-                    val nm = "${o.str("first_name")} ${o.str("last_name")}".trim()
-                    list.add(
-                        WCustomer(
-                            o.optLong("id"),
-                            nm.ifBlank { o.str("username").ifBlank { o.str("email") } },
-                            o.str("email"),
-                            b?.str("phone") ?: "",
-                            o.optInt("orders_count"),
-                            o.dbl("total_spent"),
-                            orderDate(o.str("date_created"))
-                        )
-                    )
-                }
-                if (reset) customers.clear()
-                customers.addAll(list)
-                custPage = next
-                custPages = r.pages
-                customersLoading = false
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                customersError = friendly(e)
-                customersLoading = false
             }
         }
     }
