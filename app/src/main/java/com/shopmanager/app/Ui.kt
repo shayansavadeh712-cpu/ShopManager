@@ -161,12 +161,14 @@ fun Field(
     number: Boolean = false,
     singleLine: Boolean = true,
     minLines: Int = 1,
-    placeholder: String? = null
+    placeholder: String? = null,
+    password: Boolean = false
 ) {
     OutlinedTextField(
         value = value, onValueChange = onChange,
         label = { Text(label) },
         singleLine = singleLine, minLines = minLines,
+        visualTransformation = if (password) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         keyboardOptions = KeyboardOptions(keyboardType = if (number) KeyboardType.Decimal else KeyboardType.Text),
         shape = RoundedCornerShape(14.dp),
         modifier = modifier.fillMaxWidth()

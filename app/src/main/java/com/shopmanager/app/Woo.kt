@@ -1,6 +1,10 @@
 package com.shopmanager.app
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import java.io.ByteArrayOutputStream
 import android.icu.util.Calendar
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -143,7 +147,8 @@ data class WVariation(
     val manageStock: Boolean,
     val stockQty: Int?,
     val stockStatus: String,
-    val image: String
+    val image: String,
+    val newImage: String? = null
 )
 
 data class WLine(
@@ -268,7 +273,7 @@ fun WProduct.toJson(isNew: Boolean, imageChanged: Boolean): JSONObject {
     val arr = JSONArray()
     catIds.forEach { arr.put(JSONObject().put("id", it)) }
     o.put("categories", arr)
-    if (isNew) o.put("type", "simple")
+    if (isNew) o.put("type", type)
     if (imageChanged) {
         val imgs = JSONArray()
         if (image.isNotBlank()) imgs.put(JSONObject().put("src", image))
@@ -310,7 +315,15 @@ fun WVariation.toJson(): JSONObject {
     o.put("manage_stock", manageStock)
     if (manageStock) o.put("stock_quantity", stockQty ?: 0)
     o.put("stock_status", stockStatus)
+    newImage?.let { u ->
+        val id = ImageIds.map[u]
+        o.put("image", if (id != null && id > 0) JSONObject().put("id", id) else JSONObject().put("src", u))
+    }
     return o
+}
+
+object ImageIds {
+    val map = HashMap<String, Long>()
 }
 
 fun addrOf(b: JSONObject?): String {
@@ -703,6 +716,11 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         private set
     var connected by mutableStateOf(false)
         private set
+    var wpUser by mutableStateOf(sp.getString("wu", "") ?: "")
+        private set
+    var wpPass by mutableStateOf(Vault.dec(sp.getString("wp", "") ?: ""))
+        private set
+    val hasWpAuth: Boolean get() = wpUser.isNotBlank() && wpPass.isNotBlank()
 
     val displayShopName: String get() = shopName.ifBlank { siteUrl.removePrefix("https://") }
 
@@ -834,6 +852,12 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         sp.edit().putString("cur", currency).apply()
     }
 
+    fun saveWpAuth(user: String, pass: String) {
+        wpUser = user.trim()
+        wpPass = pass.trim()
+        sp.edit().putString("wu", wpUser).putString("wp", Vault.enc(wpPass)).apply()
+    }
+
     fun saveShopInfo(name: String, phone: String, addr: String) {
         shopName = name.trim()
         shopPhone = phone.trim()
@@ -851,6 +875,8 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         shopName = ""
         shopPhone = ""
         shopAddr = ""
+        wpUser = ""
+        wpPass = ""
         connected = false
         booted = false
         products.clear()
@@ -1187,6 +1213,143 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
                 message = if (isNew) "محصول ساخته شد" else "ذخیره شد"
                 loadStats()
                 busy = null
+                onDone(true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message = friendly(e)
+                busy = null
+                onDone(false)
+            }
+        }
+    }
+
+    // ── آپلود تصویر از گالری (نیاز به Application Password وردپرس)
+    private fun prepareImage(ctx: Context, uri: Uri): ByteArray {
+        val o = BitmapFactory.Options()
+        o.inJustDecodeBounds = true
+        ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o) }
+        var s = 1
+        while (o.outWidth / (s * 2) >= 1600 || o.outHeight / (s * 2) >= 1600) s *= 2
+        val o2 = BitmapFactory.Options()
+        o2.inSampleSize = s
+        val bmp = ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o2) }
+            ?: throw WooException("خواندن تصویر ناموفق بود")
+        val out = ByteArrayOutputStream()
+        bmp.compress(Bitmap.CompressFormat.JPEG, 88, out)
+        return out.toByteArray()
+    }
+
+    private fun doUpload(ctx: Context, uri: Uri): String {
+        val bytes = prepareImage(ctx, uri)
+        val conn = URL(siteUrl + "/wp-json/wp/v2/media").openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 15000
+            conn.readTimeout = 90000
+            conn.doOutput = true
+            conn.setFixedLengthStreamingMode(bytes.size)
+            val cred = Base64.encodeToString("$wpUser:$wpPass".toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+            conn.setRequestProperty("Authorization", "Basic $cred")
+            conn.setRequestProperty("Content-Type", "image/jpeg")
+            conn.setRequestProperty("Content-Disposition", "attachment; filename=\"app-${System.currentTimeMillis()}.jpg\"")
+            conn.outputStream.use { it.write(bytes) }
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+            if (code !in 200..299) {
+                val msg = try { JSONObject(text).optString("message", "") } catch (e: Exception) { "" }
+                throw WooException(
+                    if (code == 401 || code == 403) "آپلود رد شد؛ نام کاربری و Application Password وردپرس را بررسی کن. $msg"
+                    else msg.ifBlank { "آپلود ناموفق ($code)" }
+                )
+            }
+            val j = JSONObject(text)
+            val u = j.getString("source_url")
+            ImageIds.map[u] = j.optLong("id")
+            return u
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    fun uploadImage(ctx: Context, uri: Uri, onDone: (String?) -> Unit) {
+        if (!hasWpAuth) {
+            message = "برای آپلود از گالری، در تنظیمات «نام کاربری وردپرس» و «Application Password» را وارد کن"
+            onDone(null)
+            return
+        }
+        scope.launch {
+            busy = "در حال آپلود تصویر..."
+            try {
+                val url = withContext(Dispatchers.IO) { doUpload(ctx, uri) }
+                message = "تصویر آپلود شد"
+                busy = null
+                onDone(url)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message = friendly(e)
+                busy = null
+                onDone(null)
+            }
+        }
+    }
+
+    // ── ساخت محصول متغیر با تنوع‌ها
+    fun createVariable(
+        p: WProduct,
+        attrs: List<Pair<String, List<String>>>,
+        regular: String,
+        sale: String,
+        qty: Int?,
+        onDone: (Boolean) -> Unit
+    ) {
+        val c = cl ?: return
+        scope.launch {
+            try {
+                busy = "در حال ساخت محصول متغیر..."
+                val body = p.toJson(true, p.image.isNotBlank())
+                val aa = JSONArray()
+                attrs.forEachIndexed { i, (n, opts) ->
+                    val oa = JSONArray()
+                    opts.forEach { oa.put(it) }
+                    aa.put(JSONObject().put("name", n).put("position", i).put("visible", true).put("variation", true).put("options", oa))
+                }
+                body.put("attributes", aa)
+                val r = c.call("POST", "/products", body = body.toString())
+                if (!r.ok) throw WooException(r.errorText())
+                val np = parseProduct(JSONObject(r.body))
+                var combos: List<List<Pair<String, String>>> = listOf(emptyList())
+                for ((n, opts) in attrs) combos = combos.flatMap { pre -> opts.map { pre + (n to it) } }
+                var ok = 0
+                for (chunk in combos.chunked(50)) {
+                    busy = "ساخت تنوع‌ها ${fa(ok)} از ${fa(combos.size)}"
+                    val arr = JSONArray()
+                    chunk.forEach { combo ->
+                        val v = JSONObject()
+                        val at = JSONArray()
+                        combo.forEach { (n, o) -> at.put(JSONObject().put("name", n).put("option", o)) }
+                        v.put("attributes", at)
+                        v.put("regular_price", regular)
+                        if (sale.isNotBlank()) v.put("sale_price", sale)
+                        if (qty != null) {
+                            v.put("manage_stock", true)
+                            v.put("stock_quantity", qty)
+                        }
+                        v.put("status", "publish")
+                        arr.put(v)
+                    }
+                    val rr = c.call("POST", "/products/${np.id}/variations/batch", body = JSONObject().put("create", arr).toString())
+                    if (rr.ok) {
+                        val cr = JSONObject(rr.body).optJSONArray("create") ?: JSONArray()
+                        for (i in 0 until cr.length()) if (!cr.getJSONObject(i).has("error")) ok++
+                    }
+                }
+                message = "محصول متغیر ساخته شد؛ ${fa(ok)} از ${fa(combos.size)} تنوع"
+                busy = null
+                loadProducts(true)
+                loadStats()
                 onDone(true)
             } catch (e: CancellationException) {
                 throw e

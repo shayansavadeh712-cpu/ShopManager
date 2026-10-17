@@ -96,6 +96,8 @@ fun SettingsScreen(vm: AppViewModel) {
     var shopPhone by remember(woo.shopPhone) { mutableStateOf(woo.shopPhone) }
     var shopAddr by remember(woo.shopAddr) { mutableStateOf(woo.shopAddr) }
     var cur by remember(woo.currency) { mutableStateOf(woo.currency) }
+    var wpU by remember(woo.wpUser) { mutableStateOf(woo.wpUser) }
+    var wpP by remember(woo.wpPass) { mutableStateOf(woo.wpPass) }
 
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 130.dp),
@@ -148,10 +150,18 @@ fun SettingsScreen(vm: AppViewModel) {
                         Field(shopPhone, { shopPhone = it }, "تلفن")
                         Field(shopAddr, { shopAddr = it }, "آدرس", singleLine = false, minLines = 2)
                         Field(cur, { cur = it }, "واحد پول")
+                        Text("آپلود عکس از گالری (اختیاری)", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "وردپرس ← کاربران ← پروفایل ← Application Passwords: یک رمز بساز و همین‌جا بگذار.",
+                            fontSize = 12.sp, color = cs.onSurfaceVariant
+                        )
+                        Field(wpU, { wpU = it }, "نام کاربری وردپرس")
+                        Field(wpP, { wpP = it }, "Application Password", password = true)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             ActionButton("ذخیره", {
                                 woo.saveShopInfo(shopName, shopPhone, shopAddr)
                                 woo.changeCurrency(cur)
+                                woo.saveWpAuth(wpU, wpP)
                                 Toast.makeText(ctx, "ذخیره شد", Toast.LENGTH_SHORT).show()
                             }, Modifier.weight(1f))
                             ActionButton("قطع اتصال", { disconnectDialog = true }, kind = BtnKind.DANGER)
