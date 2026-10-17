@@ -151,7 +151,7 @@ fun SettingsScreen(vm: AppViewModel) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             ActionButton("ذخیره", {
                                 woo.saveShopInfo(shopName, shopPhone, shopAddr)
-                                woo.setCurrency(cur)
+                                woo.changeCurrency(cur)
                                 Toast.makeText(ctx, "ذخیره شد", Toast.LENGTH_SHORT).show()
                             }, Modifier.weight(1f))
                             ActionButton("قطع اتصال", { disconnectDialog = true }, kind = BtnKind.DANGER)

@@ -829,7 +829,7 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         }
     }
 
-    fun setCurrency(c: String) {
+    fun changeCurrency(c: String) {
         currency = c.trim().ifBlank { "تومان" }
         sp.edit().putString("cur", currency).apply()
     }
