@@ -26,6 +26,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -358,30 +361,47 @@ fun ConfirmDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** صفحهٔ تمام‌صفحه با دکمهٔ بستن؛ با کشیدن به پایین بسته نمی‌شود تا اطلاعات نپرد */
 @Composable
-fun AppSheet(onDismiss: () -> Unit, title: String? = null, content: @Composable ColumnScope.() -> Unit) {
+fun AppSheet(onDismiss: () -> Unit, title: String? = null, dirty: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val cs = MaterialTheme.colorScheme
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = cs.surface,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-        dragHandle = {
-            Box(
-                Modifier.padding(top = 12.dp, bottom = 6.dp).width(44.dp).height(5.dp)
-                    .clip(RoundedCornerShape(50)).background(cs.outlineVariant)
-            )
-        }
+    var askExit by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val tryClose: () -> Unit = { if (dirty) askExit = true else onDismiss() }
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = tryClose,
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnClickOutside = false,
+            decorFitsSystemWindows = false
+        )
     ) {
-        Column(
-            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 18.dp)
-                .verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (title != null) Text(title, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-            content()
+        androidx.compose.material3.Surface(Modifier.fillMaxSize(), color = cs.surface) {
+            Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    androidx.compose.material3.IconButton(onClick = tryClose) { Icon(Icons.Rounded.Close, "بستن") }
+                    if (title != null) {
+                        Text(title, Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    }
+                }
+                Column(
+                    Modifier.weight(1f).fillMaxWidth().padding(horizontal = 18.dp)
+                        .verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    content()
+                }
+            }
         }
+    }
+    if (askExit) {
+        ConfirmDialog(
+            title = "خروج بدون ذخیره؟",
+            text = "تغییرات ذخیره‌نشده از بین می‌رود.",
+            confirmText = "خروج", danger = true,
+            onConfirm = { askExit = false; onDismiss() },
+            onDismiss = { askExit = false }
+        )
     }
 }
 
