@@ -191,7 +191,7 @@ fun ProductsTab(woo: WooState) {
         }
     }
 
-    if (creating) ProductEditor(woo, null, startType = createType, onVariations = { }) { creating = false }
+    if (creating) ProductEditor(woo, null, startType = createType, onVariations = { showVars = it }) { creating = false }
     editing?.let { p ->
         ProductEditor(woo, p, onVariations = { showVars = it }) { editing = null }
     }
@@ -410,6 +410,7 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
     val cs = MaterialTheme.colorScheme
     val isNew = initial == null
     val orig = initial ?: WProduct()
+    LaunchedEffect(Unit) { if (woo.brands.isEmpty()) woo.loadBrands() }
     var name by remember { mutableStateOf(orig.name) }
     var sku by remember { mutableStateOf(orig.sku) }
     var regular by remember { mutableStateOf(orig.regularPrice) }
@@ -613,7 +614,7 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
 
         if (orig.priceEditable) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Field(regular, { regular = it }, if (isNew && pType == "variable") "قیمت همهٔ تنوع‌ها" else "قیمت (${woo.currency})", Modifier.weight(1f), number = true)
+                Field(regular, { regular = it }, if (isNew && pType == "variable") "قیمت پایه (بعداً برای هر تنوع جدا)" else "قیمت (${woo.currency})", Modifier.weight(1f), number = true)
                 Field(sale, { sale = it }, "قیمت حراج", Modifier.weight(1f), number = true)
             }
             Section("حراج زمان‌دار", if (saleFromDay != null || saleToDay != null) "فعال" else "بدون زمان") {
@@ -632,8 +633,8 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
                     Icon(Icons.Rounded.Layers, null, tint = cs.primary)
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("تنوع‌ها (${fa(orig.varCount)})", fontWeight = FontWeight.Bold)
-                        Text("قیمت، موجودی و عکس هر رنگ/سایز", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                        Text("قیمت و حراج هر تنوع (${fa(orig.varCount)})", fontWeight = FontWeight.Bold)
+                        Text("قیمت عادی، حراج، موجودی و عکس هر رنگ/سایز", fontSize = 12.sp, color = cs.onSurfaceVariant)
                     }
                     Icon(Icons.Rounded.ChevronLeft, null)
                 }
@@ -791,9 +792,15 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
         Section("دسته و برند", catSummary + (if (brandIds.isNotEmpty()) " · " + woo.brands.filter { brandIds.contains(it.id) }.joinToString("، ") { it.name } else "")) {
             Text("دسته‌ها", fontWeight = FontWeight.SemiBold)
             CategoryPicker(woo.categories, cats, { cats = it })
+            Text("برند", fontWeight = FontWeight.SemiBold)
             if (woo.brandsSupported && woo.brands.isNotEmpty()) {
-                Text("برند", fontWeight = FontWeight.SemiBold)
                 CategoryPicker(woo.brands, brandIds, { brandIds = it })
+            } else if (!woo.brandsSupported) {
+                Text("این سایت برند ووکامرس را پشتیبانی نمی‌کند (به ووکامرس ۹٫۶ یا بالاتر نیاز دارد)" + (if (woo.brandsError.isNotBlank()) " — ${woo.brandsError}" else ""), fontSize = 12.sp, color = cs.onSurfaceVariant)
+                TextButton(onClick = { woo.loadBrands() }) { Text("تلاش دوباره") }
+            } else {
+                Text("هنوز برندی ساخته نشده. از «بیشتر ← دسته‌ها و برندها ← برندها» اضافه کن.", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                TextButton(onClick = { woo.loadBrands() }) { Text("بارگذاری دوباره") }
             }
         }
 
@@ -875,7 +882,13 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
             onConfirm = {
                 confirmSave = false
                 if (isNew && pType == "variable") {
-                    woo.createVariable(n, attrs(), n.regularPrice, n.salePrice, en(varQty).trim().toIntOrNull(), attrIdMap()) { if (it) onClose() }
+                    woo.createVariable(n, attrs(), n.regularPrice, n.salePrice, en(varQty).trim().toIntOrNull(), attrIdMap()) { ok ->
+                        if (ok) {
+                            val nid = woo.lastCreatedId
+                            onClose()
+                            if (nid > 0L) onVariations(n.copy(id = nid))
+                        }
+                    }
                 } else {
                     woo.save(n, n.image != orig.image || n.gallery != orig.gallery) { if (it) onClose() }
                 }

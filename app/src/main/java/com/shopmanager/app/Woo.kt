@@ -958,6 +958,8 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
     val categories = mutableStateListOf<WCat>()
     val brands = mutableStateListOf<WCat>()
     var brandsSupported by mutableStateOf(true)
+    var brandsError by mutableStateOf("")
+    var lastCreatedId by mutableStateOf(0L)
     val attrDefs = mutableStateListOf<WAttrDef>()
     val tags = mutableStateListOf<WCat>()
     val attrTerms = androidx.compose.runtime.mutableStateMapOf<Long, List<String>>()
@@ -1383,6 +1385,7 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
                 if (!r.ok) {
                     if (pg == 1) {
                         brandsSupported = false
+                        brandsError = "کد ${r.code}"
                         return@go
                     }
                     break
@@ -1397,6 +1400,7 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
                 pg++
             }
             brandsSupported = true
+            brandsError = ""
             brands.clear()
             brands.addAll(all.sortedBy { it.name })
         }
@@ -1806,6 +1810,7 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
                 val r = c.call("POST", "/products", body = body.toString())
                 if (!r.ok) throw WooException(r.errorText())
                 val np = parseProduct(JSONObject(r.body))
+                lastCreatedId = np.id
                 if (np.status == "future") Notifier.scheduleAlarm(app, np.id, np.name, Notifier.gmtToMillis(np.dateGmt))
                 var combos: List<List<Pair<String, String>>> = listOf(emptyList())
                 for ((n, opts) in attrs) combos = combos.flatMap { pre -> opts.map { pre + (n to it) } }
