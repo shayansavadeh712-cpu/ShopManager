@@ -137,10 +137,39 @@ data class WProduct(
     val schedDate: String = "",
     val schedGmt: String = "",
     val brandIds: List<Long> = emptyList(),
-    val brandNames: List<String> = emptyList()
+    val brandNames: List<String> = emptyList(),
+    val gallery: List<String> = emptyList(),
+    val imgIds: Map<String, Long> = emptyMap(),
+    val slug: String = "",
+    val saleFrom: String = "",
+    val saleTo: String = "",
+    val taxStatus: String = "taxable",
+    val taxClass: String = "",
+    val lowStock: Int? = null,
+    val soldIndividually: Boolean = false,
+    val length: String = "",
+    val width: String = "",
+    val height: String = "",
+    val shippingClass: String = "",
+    val tagNames: List<String> = emptyList(),
+    val purchaseNote: String = "",
+    val menuOrder: Int = 0,
+    val reviewsAllowed: Boolean = true,
+    val catalogVisibility: String = "visible",
+    val virtual: Boolean = false,
+    val downloadable: Boolean = false,
+    val externalUrl: String = "",
+    val buttonText: String = "",
+    val upsellIds: List<Long> = emptyList(),
+    val crossSellIds: List<Long> = emptyList(),
+    val groupedIds: List<Long> = emptyList(),
+    val avgRating: String = "",
+    val ratingCount: Int = 0
 ) {
     val priceEditable: Boolean get() = type == "simple" || type == "external"
 }
+
+data class WAttrDef(val id: Long, val name: String, val slug: String)
 
 data class WVariation(
     val id: Long,
@@ -154,7 +183,19 @@ data class WVariation(
     val stockQty: Int?,
     val stockStatus: String,
     val image: String,
-    val newImage: String? = null
+    val newImage: String? = null,
+    val description: String = "",
+    val weight: String = "",
+    val length: String = "",
+    val width: String = "",
+    val height: String = "",
+    val backorders: String = "no",
+    val taxStatus: String = "taxable",
+    val saleFrom: String = "",
+    val saleTo: String = "",
+    val virtual: Boolean = false,
+    val downloadable: Boolean = false,
+    val lowStock: Int? = null
 )
 
 data class WLine(
@@ -230,7 +271,20 @@ fun parseProduct(o: JSONObject): WProduct {
         names.add(clean(c.str("name")))
     }
     val imgs = o.optJSONArray("images")
-    val img = if (imgs != null && imgs.length() > 0) imgs.getJSONObject(0).str("src") else ""
+    val srcs = ArrayList<String>()
+    val idMap = HashMap<String, Long>()
+    if (imgs != null) {
+        for (i in 0 until imgs.length()) {
+            val im = imgs.getJSONObject(i)
+            val sx = im.str("src")
+            if (sx.isNotBlank()) {
+                srcs.add(sx)
+                idMap[sx] = im.optLong("id")
+            }
+        }
+    }
+    val img = srcs.firstOrNull() ?: ""
+    val gal: List<String> = if (srcs.size > 1) srcs.drop(1) else emptyList()
     val vars = o.optJSONArray("variations")
     val bs = o.optJSONArray("brands") ?: JSONArray()
     val bIds = ArrayList<Long>()
@@ -267,11 +321,57 @@ fun parseProduct(o: JSONObject): WProduct {
         date = o.str("date_created"),
         dateGmt = o.str("date_created_gmt"),
         brandIds = bIds,
-        brandNames = bNames
+        brandNames = bNames,
+        gallery = gal,
+        imgIds = idMap,
+        slug = o.str("slug"),
+        saleFrom = dayOnly(o.str("date_on_sale_from")),
+        saleTo = dayOnly(o.str("date_on_sale_to")),
+        taxStatus = o.str("tax_status").ifBlank { "taxable" },
+        taxClass = o.str("tax_class"),
+        lowStock = if (o.isNull("low_stock_amount") || !o.has("low_stock_amount")) null else o.optInt("low_stock_amount"),
+        soldIndividually = o.optBoolean("sold_individually", false),
+        length = o.optJSONObject("dimensions")?.str("length") ?: "",
+        width = o.optJSONObject("dimensions")?.str("width") ?: "",
+        height = o.optJSONObject("dimensions")?.str("height") ?: "",
+        shippingClass = o.str("shipping_class"),
+        tagNames = namesOf(o.optJSONArray("tags")),
+        purchaseNote = o.str("purchase_note"),
+        menuOrder = o.optInt("menu_order", 0),
+        reviewsAllowed = o.optBoolean("reviews_allowed", true),
+        catalogVisibility = o.str("catalog_visibility").ifBlank { "visible" },
+        virtual = o.optBoolean("virtual", false),
+        downloadable = o.optBoolean("downloadable", false),
+        externalUrl = o.str("external_url"),
+        buttonText = o.str("button_text"),
+        upsellIds = idsOf(o.optJSONArray("upsell_ids")),
+        crossSellIds = idsOf(o.optJSONArray("cross_sell_ids")),
+        groupedIds = idsOf(o.optJSONArray("grouped_products")),
+        avgRating = o.str("average_rating"),
+        ratingCount = o.optInt("rating_count", 0)
     )
 }
 
-fun WProduct.toJson(isNew: Boolean, imageChanged: Boolean): JSONObject {
+fun dayOnly(s: String): String = if (s.length >= 10) s.substring(0, 10) else ""
+
+fun namesOf(a: JSONArray?): List<String> {
+    if (a == null) return emptyList()
+    val l = ArrayList<String>()
+    for (i in 0 until a.length()) l.add(clean(a.getJSONObject(i).str("name")))
+    return l
+}
+
+fun idsOf(a: JSONArray?): List<Long> {
+    if (a == null) return emptyList()
+    val l = ArrayList<Long>()
+    for (i in 0 until a.length()) l.add(a.optLong(i))
+    return l
+}
+
+fun parseIds(t: String): List<Long> =
+    t.replace("،", ",").split(",", " ", "\n").mapNotNull { it.trim().toLongOrNull() }.distinct()
+
+fun WProduct.toJson(isNew: Boolean, imageChanged: Boolean, tagIds: List<Long>? = null): JSONObject {
     val o = JSONObject()
     o.put("name", name)
     // زمان‌بندی: وردپرس خودش محصول را با وضعیت publish و تاریخ آینده زمان‌بندی می‌کند
@@ -291,16 +391,48 @@ fun WProduct.toJson(isNew: Boolean, imageChanged: Boolean): JSONObject {
     o.put("description", description)
     o.put("short_description", shortDescription)
     o.put("weight", weight)
+    o.put("dimensions", JSONObject().put("length", length).put("width", width).put("height", height))
+    if (slug.isNotBlank()) o.put("slug", slug)
+    o.put("tax_status", taxStatus)
+    o.put("tax_class", taxClass)
+    o.put("sold_individually", soldIndividually)
+    o.put("shipping_class", shippingClass)
+    o.put("purchase_note", purchaseNote)
+    o.put("menu_order", menuOrder)
+    o.put("reviews_allowed", reviewsAllowed)
+    o.put("catalog_visibility", catalogVisibility)
+    o.put("virtual", virtual)
+    o.put("downloadable", downloadable)
+    o.put("low_stock_amount", if (manageStock && lowStock != null) lowStock else JSONObject.NULL)
+    if (priceEditable) {
+        o.put("date_on_sale_from", if (saleFrom.isBlank()) JSONObject.NULL else "${saleFrom}T00:00:00")
+        o.put("date_on_sale_to", if (saleTo.isBlank()) JSONObject.NULL else "${saleTo}T23:59:59")
+    }
+    if (type == "external") {
+        o.put("external_url", externalUrl)
+        o.put("button_text", buttonText)
+    }
+    if (type == "grouped") o.put("grouped_products", JSONArray(groupedIds))
+    o.put("upsell_ids", JSONArray(upsellIds))
+    o.put("cross_sell_ids", JSONArray(crossSellIds))
     val arr = JSONArray()
     catIds.forEach { arr.put(JSONObject().put("id", it)) }
     o.put("categories", arr)
     val barr = JSONArray()
     brandIds.forEach { barr.put(JSONObject().put("id", it)) }
     o.put("brands", barr)
+    if (tagIds != null) {
+        val ta = JSONArray()
+        tagIds.forEach { ta.put(JSONObject().put("id", it)) }
+        o.put("tags", ta)
+    }
     if (isNew) o.put("type", type)
     if (imageChanged) {
         val imgs = JSONArray()
-        if (image.isNotBlank()) imgs.put(JSONObject().put("src", image))
+        (listOf(image) + gallery).filter { it.isNotBlank() }.distinct().forEach { u ->
+            val iid = imgIds[u] ?: 0L
+            imgs.put(if (iid > 0L) JSONObject().put("id", iid) else JSONObject().put("src", u))
+        }
         o.put("images", imgs)
     }
     return o
@@ -326,7 +458,19 @@ fun parseVariation(o: JSONObject, pid: Long): WVariation {
         manageStock = o.optBoolean("manage_stock", false),
         stockQty = if (o.isNull("stock_quantity")) null else o.optInt("stock_quantity"),
         stockStatus = o.str("stock_status").ifBlank { "instock" },
-        image = img
+        image = img,
+        description = o.str("description"),
+        weight = o.str("weight"),
+        length = o.optJSONObject("dimensions")?.str("length") ?: "",
+        width = o.optJSONObject("dimensions")?.str("width") ?: "",
+        height = o.optJSONObject("dimensions")?.str("height") ?: "",
+        backorders = o.str("backorders").ifBlank { "no" },
+        taxStatus = o.str("tax_status").ifBlank { "taxable" },
+        saleFrom = dayOnly(o.str("date_on_sale_from")),
+        saleTo = dayOnly(o.str("date_on_sale_to")),
+        virtual = o.optBoolean("virtual", false),
+        downloadable = o.optBoolean("downloadable", false),
+        lowStock = if (o.isNull("low_stock_amount") || !o.has("low_stock_amount")) null else o.optInt("low_stock_amount")
     )
 }
 
@@ -339,6 +483,16 @@ fun WVariation.toJson(): JSONObject {
     o.put("manage_stock", manageStock)
     if (manageStock) o.put("stock_quantity", stockQty ?: 0)
     o.put("stock_status", stockStatus)
+    o.put("backorders", backorders)
+    o.put("description", description)
+    o.put("weight", weight)
+    o.put("dimensions", JSONObject().put("length", length).put("width", width).put("height", height))
+    o.put("tax_status", taxStatus)
+    o.put("virtual", virtual)
+    o.put("downloadable", downloadable)
+    o.put("date_on_sale_from", if (saleFrom.isBlank()) JSONObject.NULL else "${saleFrom}T00:00:00")
+    o.put("date_on_sale_to", if (saleTo.isBlank()) JSONObject.NULL else "${saleTo}T23:59:59")
+    o.put("low_stock_amount", if (manageStock && lowStock != null) lowStock else JSONObject.NULL)
     newImage?.let { u ->
         val id = ImageIds.map[u]
         o.put("image", if (id != null && id > 0) JSONObject().put("id", id) else JSONObject().put("src", u))
@@ -804,6 +958,9 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
     val categories = mutableStateListOf<WCat>()
     val brands = mutableStateListOf<WCat>()
     var brandsSupported by mutableStateOf(true)
+    val attrDefs = mutableStateListOf<WAttrDef>()
+    val tags = mutableStateListOf<WCat>()
+    val attrTerms = androidx.compose.runtime.mutableStateMapOf<Long, List<String>>()
 
     var busy by mutableStateOf<String?>(null)
     var message by mutableStateOf<String?>(null)
@@ -945,6 +1102,8 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         booted = true
         loadCategories()
         loadBrands()
+        loadAttributes()
+        loadTags()
         loadStats()
         loadProducts(true)
     }
@@ -1116,6 +1275,101 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
             }
             categories.clear()
             categories.addAll(orderCats(all))
+        }
+    }
+
+    /** برچسب‌ها: نام‌ها را به شناسه تبدیل می‌کند و برچسب جدید می‌سازد */
+    private suspend fun resolveTags(c: WooClient, names: List<String>): List<Long>? {
+        if (names.isEmpty()) return emptyList()
+        val ids = ArrayList<Long>()
+        for (n in names.map { it.trim() }.filter { it.isNotEmpty() }.distinct()) {
+            val known = tags.firstOrNull { it.name.equals(n, true) }
+            if (known != null) { ids.add(known.id); continue }
+            val r = c.call("POST", "/products/tags", body = JSONObject().put("name", n).toString())
+            if (r.ok) {
+                val o = JSONObject(r.body)
+                val t = WCat(o.optLong("id"), clean(o.str("name")), 0, 0L, "")
+                tags.add(t)
+                ids.add(t.id)
+            } else {
+                // اگر از قبل وجود داشته باشد وردپرس شناسه را در خطا برمی‌گرداند
+                val m = Regex("\"resource_id\":\\s*(\\d+)").find(r.body)
+                m?.groupValues?.get(1)?.toLongOrNull()?.let { ids.add(it) }
+            }
+        }
+        return ids
+    }
+
+    fun loadTags() {
+        val c = cl ?: return
+        scope.launch {
+            try {
+                val all = ArrayList<WCat>()
+                var pg = 1
+                while (pg <= 5) {
+                    val r = c.call("GET", "/products/tags", mapOf("per_page" to "100", "page" to pg.toString(), "hide_empty" to "false"))
+                    if (!r.ok) break
+                    val arr = JSONArray(r.body)
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        all.add(WCat(o.optLong("id"), clean(o.str("name")), o.optInt("count"), 0L, ""))
+                    }
+                    if (pg >= r.pages) break
+                    pg++
+                }
+                tags.clear()
+                tags.addAll(all.sortedBy { it.name })
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+            }
+        }
+    }
+
+    /** ویژگی‌های سراسری سایت (مثل رنگ و سایز) */
+    fun loadAttributes() {
+        val c = cl ?: return
+        scope.launch {
+            try {
+                val r = c.call("GET", "/products/attributes")
+                if (!r.ok) return@launch
+                val arr = JSONArray(r.body)
+                val list = ArrayList<WAttrDef>()
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    list.add(WAttrDef(o.optLong("id"), clean(o.str("name")), o.str("slug")))
+                }
+                attrDefs.clear()
+                attrDefs.addAll(list)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+            }
+        }
+    }
+
+    /** مقدارهای (ترم‌های) یک ویژگی سراسری */
+    fun loadAttrTerms(attrId: Long) {
+        val c = cl ?: return
+        if (attrTerms.containsKey(attrId)) return
+        scope.launch {
+            try {
+                val all = ArrayList<String>()
+                var pg = 1
+                while (pg <= 5) {
+                    val r = c.call("GET", "/products/attributes/$attrId/terms", mapOf("per_page" to "100", "page" to pg.toString(), "hide_empty" to "false"))
+                    if (!r.ok) break
+                    val arr = JSONArray(r.body)
+                    for (i in 0 until arr.length()) all.add(clean(arr.getJSONObject(i).str("name")))
+                    if (pg >= r.pages) break
+                    pg++
+                }
+                attrTerms[attrId] = all
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                attrTerms[attrId] = emptyList()
+            }
         }
     }
 
@@ -1321,7 +1575,8 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
             busy = "در حال ذخیره..."
             try {
                 val isNew = p.id == 0L
-                val body = p.toJson(isNew, imageChanged).toString()
+                val tids = resolveTags(c, p.tagNames)
+                val body = p.toJson(isNew, imageChanged, tids).toString()
                 val r = if (isNew) c.call("POST", "/products", body = body)
                 else c.call("PUT", "/products/${p.id}", body = body)
                 if (!r.ok) throw WooException(r.errorText())
@@ -1417,6 +1672,30 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         }
     }
 
+    fun uploadImages(ctx: Context, uris: List<Uri>, onDone: (List<String>) -> Unit) {
+        if (!hasWpAuth) {
+            message = "برای آپلود از گالری، در تنظیمات «نام کاربری وردپرس» و «Application Password» را وارد کن"
+            onDone(emptyList())
+            return
+        }
+        scope.launch {
+            val out = ArrayList<String>()
+            try {
+                for ((i, u) in uris.withIndex()) {
+                    busy = "آپلود تصویر ${fa(i + 1)} از ${fa(uris.size)}..."
+                    out.add(withContext(Dispatchers.IO) { doUpload(ctx, u) })
+                }
+                message = "${fa(out.size)} تصویر آپلود شد"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message = friendly(e)
+            }
+            busy = null
+            onDone(out)
+        }
+    }
+
     // ── افزودن یک تنوع به محصول متغیر موجود
     fun addVariation(
         pid: Long,
@@ -1506,18 +1785,22 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
         regular: String,
         sale: String,
         qty: Int?,
+        attrIds: Map<String, Long> = emptyMap(),
         onDone: (Boolean) -> Unit
     ) {
         val c = cl ?: return
         scope.launch {
             try {
                 busy = "در حال ساخت محصول متغیر..."
-                val body = p.toJson(true, p.image.isNotBlank())
+                val body = p.toJson(true, p.image.isNotBlank() || p.gallery.isNotEmpty(), resolveTags(c, p.tagNames))
                 val aa = JSONArray()
                 attrs.forEachIndexed { i, (n, opts) ->
                     val oa = JSONArray()
                     opts.forEach { oa.put(it) }
-                    aa.put(JSONObject().put("name", n).put("position", i).put("visible", true).put("variation", true).put("options", oa))
+                    val aj = JSONObject()
+                    val gid = attrIds[n] ?: 0L
+                    if (gid > 0L) aj.put("id", gid) else aj.put("name", n)
+                    aa.put(aj.put("position", i).put("visible", true).put("variation", true).put("options", oa))
                 }
                 body.put("attributes", aa)
                 val r = c.call("POST", "/products", body = body.toString())
@@ -1533,7 +1816,12 @@ class WooState(ctx: Context, private val scope: CoroutineScope) {
                     chunk.forEach { combo ->
                         val v = JSONObject()
                         val at = JSONArray()
-                        combo.forEach { (n, o) -> at.put(JSONObject().put("name", n).put("option", o)) }
+                        combo.forEach { (n, o) ->
+                            val gid = attrIds[n] ?: 0L
+                            val aj = JSONObject()
+                            if (gid > 0L) aj.put("id", gid) else aj.put("name", n)
+                            at.put(aj.put("option", o))
+                        }
                         v.put("attributes", at)
                         v.put("regular_price", regular)
                         if (sale.isNotBlank()) v.put("sale_price", sale)

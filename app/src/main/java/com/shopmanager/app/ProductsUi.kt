@@ -12,6 +12,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -355,6 +356,53 @@ private fun FilterSheet(woo: WooState, onClose: () -> Unit) {
     }
 }
 
+@Composable
+private fun MiniChip(text: String, on: Boolean, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(50)
+    Box(
+        Modifier.clip(shape).background(if (on) cs.primary else insetColor())
+            .border(1.dp, if (on) Color.Transparent else cs.outlineVariant, shape)
+            .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text, fontSize = 13.sp, maxLines = 1,
+            color = if (on) cs.onPrimary else cs.onSurface,
+            fontWeight = if (on) FontWeight.Bold else FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun GalleryRow(items: List<String>, onAdd: () -> Unit, onRemove: (Int) -> Unit, onMakeMain: (Int) -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(16.dp)
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        items.forEachIndexed { i, url ->
+            Box(Modifier.size(82.dp).clip(shape)) {
+                RemoteImage(url, Modifier.fillMaxSize(), 240)
+                Box(
+                    Modifier.align(Alignment.TopStart).padding(4.dp).size(26.dp).clip(CircleShape)
+                        .background(Color.Black.copy(alpha = .6f)).clickable { onRemove(i) },
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.Rounded.Close, null, tint = Color.White, modifier = Modifier.size(16.dp)) }
+                Box(
+                    Modifier.align(Alignment.BottomStart).padding(4.dp).size(26.dp).clip(CircleShape)
+                        .background(Color.Black.copy(alpha = .6f)).clickable { onMakeMain(i) },
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.Rounded.Star, null, tint = Color(0xFFFBBF24), modifier = Modifier.size(16.dp)) }
+            }
+        }
+        Box(
+            Modifier.size(82.dp).clip(shape).background(insetColor()).border(1.dp, cs.outlineVariant, shape).clickable(onClick = onAdd),
+            contentAlignment = Alignment.Center
+        ) { Icon(Icons.Rounded.AddPhotoAlternate, null, tint = cs.primary, modifier = Modifier.size(28.dp)) }
+    }
+    if (items.isNotEmpty()) {
+        Text("ستاره = تبدیل به تصویر شاخص، ضربدر = حذف از گالری", fontSize = 11.sp, color = cs.onSurfaceVariant)
+    }
+}
+
 // ───────────────────────── ویرایشگر محصول ─────────────────────────
 
 @Composable
@@ -374,15 +422,43 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
     var featured by remember { mutableStateOf(orig.featured) }
     var cats by remember { mutableStateOf(orig.catIds) }
     var image by remember { mutableStateOf(orig.image) }
+    var gallery by remember { mutableStateOf(orig.gallery) }
     var desc by remember { mutableStateOf(orig.description) }
     var shortDesc by remember { mutableStateOf(orig.shortDescription) }
     var weight by remember { mutableStateOf(orig.weight) }
+    var lenF by remember { mutableStateOf(orig.length) }
+    var widF by remember { mutableStateOf(orig.width) }
+    var heiF by remember { mutableStateOf(orig.height) }
+    var saleFromDay by remember { mutableStateOf(orig.saleFrom.takeIf { it.isNotBlank() }?.let { runCatching { java.time.LocalDate.parse(it).toEpochDay() }.getOrNull() }) }
+    var saleToDay by remember { mutableStateOf(orig.saleTo.takeIf { it.isNotBlank() }?.let { runCatching { java.time.LocalDate.parse(it).toEpochDay() }.getOrNull() }) }
+    var showSaleFrom by remember { mutableStateOf(false) }
+    var showSaleTo by remember { mutableStateOf(false) }
+    var taxStatus by remember { mutableStateOf(orig.taxStatus) }
+    var taxClass by remember { mutableStateOf(orig.taxClass) }
+    var lowStock by remember { mutableStateOf(orig.lowStock?.toString() ?: "") }
+    var soldInd by remember { mutableStateOf(orig.soldIndividually) }
+    var shipClass by remember { mutableStateOf(orig.shippingClass) }
+    var tagNames by remember { mutableStateOf(orig.tagNames) }
+    var newTags by remember { mutableStateOf("") }
+    var purchaseNote by remember { mutableStateOf(orig.purchaseNote) }
+    var menuOrder by remember { mutableStateOf(if (orig.menuOrder != 0) orig.menuOrder.toString() else "") }
+    var reviews by remember { mutableStateOf(orig.reviewsAllowed) }
+    var visibility by remember { mutableStateOf(orig.catalogVisibility) }
+    var virt by remember { mutableStateOf(orig.virtual) }
+    var downl by remember { mutableStateOf(orig.downloadable) }
+    var extUrl by remember { mutableStateOf(orig.externalUrl) }
+    var btnText by remember { mutableStateOf(orig.buttonText) }
+    var upsells by remember { mutableStateOf(orig.upsellIds.joinToString("، ")) }
+    var crosses by remember { mutableStateOf(orig.crossSellIds.joinToString("، ")) }
+    var grouped by remember { mutableStateOf(orig.groupedIds.joinToString("، ")) }
+    var slug by remember { mutableStateOf(orig.slug) }
     var confirmSave by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
     var pType by remember { mutableStateOf(startType) }
     val attrNames = remember { mutableStateListOf("") }
     val attrVals = remember { mutableStateListOf("") }
+    val attrIds = remember { mutableStateListOf(0L) }
     var varQty by remember { mutableStateOf("") }
     val origLocal = remember { if (orig.status == "future") gmtLocal(orig.dateGmt) else null }
     var schedDay by remember { mutableStateOf<Long?>(origLocal?.toLocalDate()?.toEpochDay()) }
@@ -394,6 +470,23 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) woo.uploadImage(ctx, uri) { url -> if (url != null) image = url }
     }
+    val galleryPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) woo.uploadImages(ctx, uris) { urls -> gallery = gallery + urls }
+    }
+    fun addGlobal(d: WAttrDef) {
+        val last = attrNames.size - 1
+        if (last >= 0 && attrNames[last].isBlank() && attrVals[last].isBlank() && attrIds[last] == 0L) {
+            attrNames[last] = d.name
+            attrIds[last] = d.id
+        } else {
+            attrNames.add(d.name)
+            attrVals.add("")
+            attrIds.add(d.id)
+        }
+        woo.loadAttrTerms(d.id)
+    }
+    fun attrIdMap(): Map<String, Long> =
+        attrNames.indices.filter { attrIds[it] > 0L }.associate { attrNames[it].trim() to attrIds[it] }
     fun schedIso(): String {
         val d = schedDay ?: return ""
         val h = (en(schedH).toIntOrNull() ?: 0).coerceIn(0, 23)
@@ -420,7 +513,19 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
         stockQty = if (manage) (en(qty).trim().toIntOrNull() ?: 0) else null,
         backorders = backorders, featured = featured, catIds = cats,
         catNames = woo.categories.filter { cats.contains(it.id) }.map { it.name },
-        image = image.trim(), description = desc, shortDescription = shortDesc, weight = en(weight).trim()
+        image = image.trim(), gallery = gallery.filter { it.isNotBlank() }, description = desc, shortDescription = shortDesc, weight = en(weight).trim(),
+        length = en(lenF).trim(), width = en(widF).trim(), height = en(heiF).trim(),
+        saleFrom = saleFromDay?.let { java.time.LocalDate.ofEpochDay(it).toString() } ?: "",
+        saleTo = saleToDay?.let { java.time.LocalDate.ofEpochDay(it).toString() } ?: "",
+        taxStatus = taxStatus, taxClass = taxClass.trim(),
+        lowStock = if (manage) en(lowStock).trim().toIntOrNull() else null,
+        soldIndividually = soldInd, shippingClass = shipClass.trim(),
+        tagNames = (tagNames + newTags.replace("،", ",").split(",").map { it.trim() }.filter { it.isNotEmpty() }).distinct(),
+        purchaseNote = purchaseNote, menuOrder = en(menuOrder).trim().toIntOrNull() ?: 0,
+        reviewsAllowed = reviews, catalogVisibility = visibility, virtual = virt, downloadable = downl,
+        externalUrl = extUrl.trim(), buttonText = btnText.trim(),
+        upsellIds = parseIds(en(upsells)), crossSellIds = parseIds(en(crosses)), groupedIds = parseIds(en(grouped)),
+        slug = slug.trim()
     )
 
     fun diff(n: WProduct): List<String> {
@@ -439,10 +544,32 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
         ch("پیش‌سفارش", orig.backorders, n.backorders)
         ch("ویژه", if (orig.featured) "بله" else "خیر", if (n.featured) "بله" else "خیر")
         if (orig.catIds != n.catIds) d.add("دسته‌ها: ${n.catNames.joinToString("، ").ifBlank { "—" }}")
-        if (orig.image != n.image) d.add("تصویر تغییر کرد")
+        if (orig.image != n.image) d.add("تصویر شاخص تغییر کرد")
+        if (orig.gallery != n.gallery) d.add("گالری: ${fa(n.gallery.size)} تصویر")
         if (orig.description != n.description) d.add("توضیحات تغییر کرد")
         if (orig.shortDescription != n.shortDescription) d.add("توضیح کوتاه تغییر کرد")
         ch("وزن", orig.weight, n.weight)
+        ch("ابعاد", "${orig.length}×${orig.width}×${orig.height}", "${n.length}×${n.width}×${n.height}")
+        ch("شروع حراج", orig.saleFrom, n.saleFrom)
+        ch("پایان حراج", orig.saleTo, n.saleTo)
+        ch("مالیات", orig.taxStatus, n.taxStatus)
+        ch("کلاس مالیات", orig.taxClass, n.taxClass)
+        ch("حد کمبود موجودی", orig.lowStock?.toString() ?: "", n.lowStock?.toString() ?: "")
+        ch("فروش تکی", if (orig.soldIndividually) "بله" else "خیر", if (n.soldIndividually) "بله" else "خیر")
+        ch("کلاس ارسال", orig.shippingClass, n.shippingClass)
+        ch("برچسب‌ها", orig.tagNames.joinToString("، "), n.tagNames.joinToString("، "))
+        ch("یادداشت خرید", orig.purchaseNote, n.purchaseNote)
+        ch("ترتیب منو", orig.menuOrder.toString(), n.menuOrder.toString())
+        ch("دیدگاه‌ها", if (orig.reviewsAllowed) "فعال" else "غیرفعال", if (n.reviewsAllowed) "فعال" else "غیرفعال")
+        ch("نمایش در فروشگاه", orig.catalogVisibility, n.catalogVisibility)
+        ch("مجازی", if (orig.virtual) "بله" else "خیر", if (n.virtual) "بله" else "خیر")
+        ch("دانلودی", if (orig.downloadable) "بله" else "خیر", if (n.downloadable) "بله" else "خیر")
+        ch("لینک خارجی", orig.externalUrl, n.externalUrl)
+        ch("متن دکمه", orig.buttonText, n.buttonText)
+        ch("آپ‌سل", orig.upsellIds.joinToString("،"), n.upsellIds.joinToString("،"))
+        ch("کراس‌سل", orig.crossSellIds.joinToString("،"), n.crossSellIds.joinToString("،"))
+        ch("محصولات گروهی", orig.groupedIds.joinToString("،"), n.groupedIds.joinToString("،"))
+        ch("نامک", orig.slug, n.slug)
         if (n.status == "future") d.add("زمان انتشار: ${fmtDay(schedDay ?: 0L)} ساعت ${fa(schedIso().takeLast(8).take(5))}")
         if (orig.brandIds != n.brandIds) d.add("برند: ${n.brandNames.joinToString("، ").ifBlank { "—" }}")
         return d
@@ -458,6 +585,7 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
                 RemoteImage(image, Modifier.fillMaxSize(), 360)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("تصویر شاخص", fontWeight = FontWeight.SemiBold)
                 ActionButton("عکس از گالری", { picker.launch("image/*") }, Modifier.fillMaxWidth(), icon = Icons.Rounded.PhotoLibrary, kind = BtnKind.TONAL)
                 if (!isNew) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -467,13 +595,36 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
                 }
             }
         }
+        Text("گالری تصاویر" + (if (gallery.isNotEmpty()) " (${fa(gallery.size)})" else ""), fontWeight = FontWeight.SemiBold)
+        GalleryRow(
+            gallery,
+            onAdd = { galleryPicker.launch("image/*") },
+            onRemove = { i -> gallery = gallery.filterIndexed { k, _ -> k != i } },
+            onMakeMain = { i ->
+                val old = image
+                val pick = gallery[i]
+                image = pick
+                gallery = if (old.isBlank()) gallery.filterIndexed { k, _ -> k != i }
+                else gallery.mapIndexed { k, u -> if (k == i) old else u }
+            }
+        )
         Field(name, { name = it }, "نام محصول")
-        if (isNew) Choices(listOf("simple" to "ساده", "variable" to "متغیر (رنگ، سایز...)"), pType) { pType = it }
+        if (isNew) Choices(listOf("simple" to "ساده", "variable" to "متغیر", "external" to "خارجی", "grouped" to "گروهی"), pType) { pType = it }
 
         if (orig.priceEditable) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Field(regular, { regular = it }, if (isNew && pType == "variable") "قیمت همهٔ تنوع‌ها" else "قیمت (${woo.currency})", Modifier.weight(1f), number = true)
                 Field(sale, { sale = it }, "قیمت حراج", Modifier.weight(1f), number = true)
+            }
+            Section("حراج زمان‌دار", if (saleFromDay != null || saleToDay != null) "فعال" else "بدون زمان") {
+                Text("اگر تاریخ بزنی، حراج خودکار شروع و تمام می‌شود.", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ActionButton(saleFromDay?.let { "از " + fmtDay(it) } ?: "شروع حراج", { showSaleFrom = true }, Modifier.weight(1f), icon = Icons.Rounded.CalendarMonth, kind = BtnKind.TONAL)
+                    ActionButton(saleToDay?.let { "تا " + fmtDay(it) } ?: "پایان حراج", { showSaleTo = true }, Modifier.weight(1f), icon = Icons.Rounded.CalendarMonth, kind = BtnKind.TONAL)
+                }
+                if (saleFromDay != null || saleToDay != null) {
+                    TextButton(onClick = { saleFromDay = null; saleToDay = null }) { Text("حذف زمان‌بندی حراج") }
+                }
             }
         } else if (orig.type == "variable") {
             AppCard(onClick = { onVariations(orig) }, pad = 14.dp) {
@@ -499,16 +650,53 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
                     fontSize = 12.sp, color = cs.onSurfaceVariant
                 )
                 Spacer(Modifier.height(8.dp))
+                val freeDefs = woo.attrDefs.filter { d -> !attrIds.contains(d.id) }
+                if (freeDefs.isNotEmpty()) {
+                    Text("از ویژگی‌های سایت انتخاب کن", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        freeDefs.forEach { d -> MiniChip(d.name, false) { addGlobal(d) } }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 attrNames.indices.forEach { i ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Field(attrNames[i], { attrNames[i] = it }, "ویژگی", Modifier.weight(1f))
-                        Field(attrVals[i], { attrVals[i] = it }, "مقادیر (با ، جدا کن)", Modifier.weight(1.6f))
-                        if (attrNames.size > 1) IconBox(Icons.Rounded.Close) { attrNames.removeAt(i); attrVals.removeAt(i) }
+                    if (attrIds[i] > 0L) {
+                        val terms = woo.attrTerms[attrIds[i]]
+                        val chosen = splitOpts(attrVals[i])
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Pill(attrNames[i], Icons.Rounded.Layers)
+                            Spacer(Modifier.weight(1f))
+                            if (terms != null && terms.isNotEmpty()) {
+                                TextButton(onClick = { attrVals[i] = if (chosen.size == terms.size) "" else terms.joinToString("، ") }) {
+                                    Text(if (chosen.size == terms.size) "هیچ‌کدام" else "انتخاب همه")
+                                }
+                            }
+                            IconBox(Icons.Rounded.Close) { attrNames.removeAt(i); attrVals.removeAt(i); attrIds.removeAt(i) }
+                        }
+                        if (terms == null) {
+                            Text("در حال خواندن مقدارها از سایت...", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                        } else if (terms.isEmpty()) {
+                            Text("برای این ویژگی در سایت مقداری تعریف نشده.", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                        } else {
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                terms.forEach { t ->
+                                    MiniChip(t, chosen.contains(t)) {
+                                        val nv = if (chosen.contains(t)) chosen - t else chosen + t
+                                        attrVals[i] = nv.joinToString("، ")
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Field(attrNames[i], { attrNames[i] = it }, "ویژگی دلخواه", Modifier.weight(1f))
+                            Field(attrVals[i], { attrVals[i] = it }, "مقادیر (با ، جدا کن)", Modifier.weight(1.6f))
+                            if (attrNames.size > 1) IconBox(Icons.Rounded.Close) { attrNames.removeAt(i); attrVals.removeAt(i); attrIds.removeAt(i) }
+                        }
                     }
                     Spacer(Modifier.height(6.dp))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ActionButton("ویژگی جدید", { attrNames.add(""); attrVals.add("") }, kind = BtnKind.TONAL, icon = Icons.Rounded.Add)
+                    ActionButton("ویژگی دلخواه", { attrNames.add(""); attrVals.add(""); attrIds.add(0L) }, kind = BtnKind.TONAL, icon = Icons.Rounded.Add)
                     Field(varQty, { varQty = it }, "موجودی هر تنوع", Modifier.weight(1f), number = true)
                 }
                 Spacer(Modifier.height(6.dp))
@@ -552,7 +740,52 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
                 Field(qty, { qty = it }, "تعداد", number = true)
                 Text("پیش‌سفارش در صورت اتمام", fontWeight = FontWeight.SemiBold)
                 Choices(listOf("no" to "غیرمجاز", "notify" to "با اطلاع", "yes" to "مجاز"), backorders) { backorders = it }
+                Field(lowStock, { lowStock = it }, "هشدار کمبود موجودی (تعداد)", number = true)
             }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("فروش تکی (هر سفارش فقط ۱ عدد)", Modifier.weight(1f))
+                Switch(soldInd, { soldInd = it })
+            }
+        }
+
+        Section("ارسال و مالیات", listOf(weight.takeIf { it.isNotBlank() }?.let { "وزن $it" }, if (virt) "مجازی" else null).filterNotNull().joinToString(" · ")) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Field(lenF, { lenF = it }, "طول", Modifier.weight(1f), number = true)
+                Field(widF, { widF = it }, "عرض", Modifier.weight(1f), number = true)
+                Field(heiF, { heiF = it }, "ارتفاع", Modifier.weight(1f), number = true)
+            }
+            Field(weight, { weight = it }, "وزن", number = true)
+            Field(shipClass, { shipClass = it }, "کلاس ارسال (نامک، مثلاً heavy)")
+            Text("وضعیت مالیات", fontWeight = FontWeight.SemiBold)
+            Choices(listOf("taxable" to "مشمول", "shipping" to "فقط ارسال", "none" to "بدون مالیات"), taxStatus) { taxStatus = it }
+            Field(taxClass, { taxClass = it }, "کلاس مالیات (خالی = استاندارد)")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("محصول مجازی (بدون ارسال)", Modifier.weight(1f))
+                Switch(virt, { virt = it })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("محصول دانلودی", Modifier.weight(1f))
+                Switch(downl, { downl = it })
+            }
+        }
+
+        Section("برچسب‌ها", tagNames.joinToString("، ").ifBlank { "بدون برچسب" }) {
+            if (woo.tags.isNotEmpty()) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    woo.tags.forEach { t ->
+                        MiniChip(t.name, tagNames.any { it.equals(t.name, true) }) {
+                            tagNames = if (tagNames.any { it.equals(t.name, true) }) tagNames.filter { !it.equals(t.name, true) } else tagNames + t.name
+                        }
+                    }
+                }
+            }
+            tagNames.filter { n -> woo.tags.none { it.name.equals(n, true) } }.forEach { n ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(n, Modifier.weight(1f))
+                    IconBox(Icons.Rounded.Close) { tagNames = tagNames.filter { it != n } }
+                }
+            }
+            Field(newTags, { newTags = it }, "برچسب جدید (با ، جدا کن)")
         }
 
         Section("دسته و برند", catSummary + (if (brandIds.isNotEmpty()) " · " + woo.brands.filter { brandIds.contains(it.id) }.joinToString("، ") { it.name } else "")) {
@@ -564,11 +797,8 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
             }
         }
 
-        Section("اطلاعات بیشتر", "SKU، وزن، توضیحات، لینک") {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Field(sku, { sku = it }, "SKU", Modifier.weight(1f))
-                Field(weight, { weight = it }, "وزن", Modifier.weight(1f), number = true)
-            }
+        Section("اطلاعات بیشتر", "SKU، توضیحات، لینک") {
+            Field(sku, { sku = it }, "SKU (شناسهٔ کالا)")
             Field(image, { image = it }, "آدرس تصویر (URL)")
             Field(shortDesc, { shortDesc = it }, "توضیح کوتاه", singleLine = false, minLines = 2)
             Field(desc, { desc = it }, "توضیحات", singleLine = false, minLines = 4)
@@ -583,6 +813,29 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
                         Toast.makeText(ctx, "لینک کپی شد", Toast.LENGTH_SHORT).show()
                     }, Modifier.weight(1f), icon = Icons.Rounded.ContentCopy, kind = BtnKind.TONAL)
                 }
+            }
+        }
+        Section("نمایش و پیشرفته", "نامک، دیدگاه، محصولات مرتبط") {
+            Field(slug, { slug = it }, "نامک (آدرس کوتاه)")
+            Text("نمایش در فروشگاه", fontWeight = FontWeight.SemiBold)
+            Choices(listOf("visible" to "همه‌جا", "catalog" to "فقط فروشگاه", "search" to "فقط جستجو", "hidden" to "مخفی"), visibility) { visibility = it }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("امکان ثبت دیدگاه", Modifier.weight(1f))
+                Switch(reviews, { reviews = it })
+            }
+            Field(menuOrder, { menuOrder = it }, "ترتیب نمایش (عدد)", number = true)
+            Field(purchaseNote, { purchaseNote = it }, "یادداشت بعد از خرید", singleLine = false, minLines = 2)
+            if (orig.type == "external" || (isNew && pType == "external")) {
+                Field(extUrl, { extUrl = it }, "لینک محصول خارجی")
+                Field(btnText, { btnText = it }, "متن دکمه")
+            }
+            if (orig.type == "grouped") Field(grouped, { grouped = it }, "شناسهٔ محصولات گروه (با ، جدا کن)")
+            Field(upsells, { upsells = it }, "آپ‌سل: شناسهٔ محصولات (با ، جدا کن)")
+            Field(crosses, { crosses = it }, "کراس‌سل: شناسهٔ محصولات (با ، جدا کن)")
+            val relNames = (parseIds(en(upsells)) + parseIds(en(crosses))).distinct().mapNotNull { id -> woo.products.firstOrNull { it.id == id }?.name }
+            if (relNames.isNotEmpty()) Text(relNames.joinToString("، "), fontSize = 12.sp, color = cs.onSurfaceVariant)
+            if (!isNew) {
+                Text("شناسهٔ این محصول: ${fa(orig.id)}" + (if (orig.ratingCount > 0) " · امتیاز ${fa(orig.avgRating)} از ${fa(orig.ratingCount)} نظر" else ""), fontSize = 12.sp, color = cs.onSurfaceVariant)
             }
         }
         err?.let { Text(it, color = cs.error, fontSize = 13.sp) }
@@ -611,6 +864,8 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
         }
     }
 
+    if (showSaleFrom) PersianDatePicker(saleFromDay, { showSaleFrom = false }) { saleFromDay = it; showSaleFrom = false }
+    if (showSaleTo) PersianDatePicker(saleToDay, { showSaleTo = false }) { saleToDay = it; showSaleTo = false }
     if (showDate) PersianDatePicker(schedDay, { showDate = false }) { schedDay = it; showDate = false }
     if (confirmSave) {
         val n = build()
@@ -620,9 +875,9 @@ fun ProductEditor(woo: WooState, initial: WProduct?, startType: String = "simple
             onConfirm = {
                 confirmSave = false
                 if (isNew && pType == "variable") {
-                    woo.createVariable(n, attrs(), n.regularPrice, n.salePrice, en(varQty).trim().toIntOrNull()) { if (it) onClose() }
+                    woo.createVariable(n, attrs(), n.regularPrice, n.salePrice, en(varQty).trim().toIntOrNull(), attrIdMap()) { if (it) onClose() }
                 } else {
-                    woo.save(n, n.image != orig.image) { if (it) onClose() }
+                    woo.save(n, n.image != orig.image || n.gallery != orig.gallery) { if (it) onClose() }
                 }
             },
             onDismiss = { confirmSave = false }
@@ -662,6 +917,8 @@ fun VariationsSheet(woo: WooState, product: WProduct, onClose: () -> Unit) {
     var newQty by remember { mutableStateOf("") }
     var confirmAdd by remember { mutableStateOf(false) }
     var pickId by remember { mutableStateOf(0L) }
+    val moreOpen = remember { mutableStateListOf<Long>() }
+    var dateFor by remember { mutableStateOf<Pair<Long, Boolean>?>(null) }
     val ctx = LocalContext.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         val id = pickId
@@ -703,6 +960,11 @@ fun VariationsSheet(woo: WooState, product: WProduct, onClose: () -> Unit) {
                         ActionButton("+", { adjustAll(vars, q, num(pct) ?: 0.0) }, kind = BtnKind.TONAL)
                         ActionButton("−", { adjustAll(vars, q, -(num(pct) ?: 0.0)) }, kind = BtnKind.TONAL)
                     }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ActionButton("حراج با این درصد تخفیف", { saleAll(vars, q, num(pct) ?: 0.0) }, Modifier.weight(1f), kind = BtnKind.TONAL)
+                        ActionButton("حذف همهٔ حراج‌ها", { saleAll(vars, q, 0.0) }, Modifier.weight(1f), kind = BtnKind.TONAL)
+                    }
                 }
                 val shown = vars.filter { q.isBlank() || it.attrs.contains(q.trim(), true) || it.sku.contains(q.trim(), true) }
                 shown.forEach { v ->
@@ -726,8 +988,13 @@ fun VariationsSheet(woo: WooState, product: WProduct, onClose: () -> Unit) {
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Field(v.regularPrice, { vars[idx] = vars[idx].copy(regularPrice = en(it)) }, "قیمت", Modifier.weight(1f), number = true)
-                            Field(v.salePrice, { vars[idx] = vars[idx].copy(salePrice = en(it)) }, "حراج", Modifier.weight(1f), number = true)
+                            Field(v.regularPrice, { vars[idx] = vars[idx].copy(regularPrice = en(it)) }, "قیمت عادی (${woo.currency})", Modifier.weight(1f), number = true)
+                            Field(v.salePrice, { vars[idx] = vars[idx].copy(salePrice = en(it)) }, "قیمت حراج", Modifier.weight(1f), number = true)
+                        }
+                        val rp = num(v.regularPrice)
+                        val sp = num(v.salePrice)
+                        if (rp != null && sp != null && sp >= rp) {
+                            Text("قیمت حراج باید کمتر از قیمت عادی باشد", fontSize = 12.sp, color = cs.error)
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -742,6 +1009,54 @@ fun VariationsSheet(woo: WooState, product: WProduct, onClose: () -> Unit) {
                                 { vars[idx] = vars[idx].copy(stockStatus = if (inStock) "outofstock" else "instock") },
                                 kind = if (inStock) BtnKind.TONAL else BtnKind.DANGER
                             )
+                        }
+                        val isOpen = moreOpen.contains(v.id)
+                        TextButton(onClick = { if (isOpen) moreOpen.remove(v.id) else moreOpen.add(v.id) }) {
+                            Text(if (isOpen) "بستن جزئیات" else "جزئیات بیشتر (SKU، حراج زمان‌دار، وزن، ابعاد...)")
+                        }
+                        if (isOpen) {
+                            Field(v.sku, { vars[idx] = vars[idx].copy(sku = it) }, "SKU")
+                            Spacer(Modifier.height(6.dp))
+                            Field(v.description, { vars[idx] = vars[idx].copy(description = it) }, "توضیحات این تنوع", singleLine = false, minLines = 2)
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ActionButton(v.saleFrom.takeIf { it.isNotBlank() }?.let { "حراج از " + fmtDay(java.time.LocalDate.parse(it).toEpochDay()) } ?: "شروع حراج",
+                                    { dateFor = v.id to true }, Modifier.weight(1f), icon = Icons.Rounded.CalendarMonth, kind = BtnKind.TONAL)
+                                ActionButton(v.saleTo.takeIf { it.isNotBlank() }?.let { "تا " + fmtDay(java.time.LocalDate.parse(it).toEpochDay()) } ?: "پایان حراج",
+                                    { dateFor = v.id to false }, Modifier.weight(1f), icon = Icons.Rounded.CalendarMonth, kind = BtnKind.TONAL)
+                            }
+                            if (v.saleFrom.isNotBlank() || v.saleTo.isNotBlank()) {
+                                TextButton(onClick = { vars[idx] = vars[idx].copy(saleFrom = "", saleTo = "") }) { Text("حذف زمان‌بندی حراج") }
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Field(v.weight, { vars[idx] = vars[idx].copy(weight = en(it)) }, "وزن", Modifier.weight(1f), number = true)
+                                Field(v.length, { vars[idx] = vars[idx].copy(length = en(it)) }, "طول", Modifier.weight(1f), number = true)
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Field(v.width, { vars[idx] = vars[idx].copy(width = en(it)) }, "عرض", Modifier.weight(1f), number = true)
+                                Field(v.height, { vars[idx] = vars[idx].copy(height = en(it)) }, "ارتفاع", Modifier.weight(1f), number = true)
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Text("وضعیت انتشار", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Choices(listOf("publish" to "فعال", "private" to "خصوصی"), v.status) { vars[idx] = vars[idx].copy(status = it) }
+                            Text("پیش‌سفارش", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Choices(listOf("no" to "غیرمجاز", "notify" to "با اطلاع", "yes" to "مجاز"), v.backorders) { vars[idx] = vars[idx].copy(backorders = it) }
+                            Text("مالیات", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Choices(listOf("taxable" to "مشمول", "shipping" to "فقط ارسال", "none" to "بدون"), v.taxStatus) { vars[idx] = vars[idx].copy(taxStatus = it) }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("مجازی", Modifier.weight(1f))
+                                Switch(v.virtual, { vars[idx] = vars[idx].copy(virtual = it) })
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("دانلودی", Modifier.weight(1f))
+                                Switch(v.downloadable, { vars[idx] = vars[idx].copy(downloadable = it) })
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("مدیریت موجودی", Modifier.weight(1f))
+                                Switch(v.manageStock, { vars[idx] = vars[idx].copy(manageStock = it) })
+                            }
                         }
                     }
                 }
@@ -775,6 +1090,17 @@ fun VariationsSheet(woo: WooState, product: WProduct, onClose: () -> Unit) {
         }
     }
 
+    dateFor?.let { (vid, isFrom) ->
+        val i = vars.indexOfFirst { it.id == vid }
+        val cur = if (i < 0) null else (if (isFrom) vars[i].saleFrom else vars[i].saleTo).takeIf { it.isNotBlank() }?.let { java.time.LocalDate.parse(it).toEpochDay() }
+        PersianDatePicker(cur, { dateFor = null }) { day ->
+            if (i >= 0) {
+                val iso = java.time.LocalDate.ofEpochDay(day).toString()
+                vars[i] = if (isFrom) vars[i].copy(saleFrom = iso) else vars[i].copy(saleTo = iso)
+            }
+            dateFor = null
+        }
+    }
     if (confirmAdd) {
         ConfirmDialog(
             title = "افزودن تنوع جدید؟",
@@ -801,7 +1127,13 @@ fun VariationsSheet(woo: WooState, product: WProduct, onClose: () -> Unit) {
         ) {
             ch.take(10).forEach { v ->
                 val o = loaded?.firstOrNull { it.id == v.id }
-                Text("• ${v.attrs}: ${priceText(o?.regularPrice ?: "")} ← ${priceText(v.regularPrice)}" + (if (v.newImage != null) " + عکس جدید" else ""), fontSize = 12.sp)
+                val parts = ArrayList<String>()
+                if (o?.regularPrice != v.regularPrice) parts.add("قیمت ${priceText(o?.regularPrice ?: "")} ← ${priceText(v.regularPrice)}")
+                if (o?.salePrice != v.salePrice) parts.add("حراج ${priceText(o?.salePrice ?: "")} ← ${priceText(v.salePrice)}")
+                if (o?.stockQty != v.stockQty || o?.stockStatus != v.stockStatus) parts.add("موجودی")
+                if (v.newImage != null) parts.add("عکس جدید")
+                if (parts.isEmpty()) parts.add("سایر مشخصات")
+                Text("• ${v.attrs}: ${parts.joinToString("، ")}", fontSize = 12.sp)
             }
             if (ch.size > 10) Text("و ${fa(ch.size - 10)} مورد دیگر...", fontSize = 12.sp)
         }
@@ -817,6 +1149,17 @@ private fun adjustAll(vars: MutableList<WVariation>, q: String, pct: Double) {
         val nv = roundStep(r * (1 + pct / 100.0), 1)
         if (nv < 0) continue
         vars[i] = v.copy(regularPrice = fmtPrice(nv))
+    }
+}
+
+private fun saleAll(vars: MutableList<WVariation>, q: String, pct: Double) {
+    for (i in vars.indices) {
+        val v = vars[i]
+        if (q.isNotBlank() && !v.attrs.contains(q.trim(), true) && !v.sku.contains(q.trim(), true)) continue
+        if (pct <= 0.0) { vars[i] = v.copy(salePrice = ""); continue }
+        if (pct >= 100.0) continue
+        val r = v.regularPrice.toDoubleOrNull() ?: continue
+        vars[i] = v.copy(salePrice = fmtPrice(roundStep(r * (1 - pct / 100.0), 1)))
     }
 }
 
