@@ -1,4 +1,4 @@
-name: Build APK
+name: Build APK from zip
 
 on:
   push:
@@ -10,20 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Locate Gradle project
-        id: locate
+      - name: Unpack newest zip
         run: |
-          echo "--- repo tree ---"
-          find . -maxdepth 3 -not -path './.git/*' | head -60
-          F=$(find . -maxdepth 4 \( -name settings.gradle.kts -o -name settings.gradle \) -not -path './.git/*' | head -n1)
-          if [ -z "$F" ]; then
-            echo "::error::settings.gradle.kts در ریپو پیدا نشد. فایل‌های پروژه آپلود نشدن."
-            exit 1
-          fi
-          DIR=$(dirname "$F")
-          echo "Gradle project dir: $DIR"
-          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+          ZIP=$(git log --diff-filter=AM --name-only --pretty=format: -- '*.zip' | grep -m1 '\.zip$')
+          echo "Using: $ZIP"
+          test -n "$ZIP"
+          mkdir proj
+          unzip -q "$ZIP" -d proj
+          ls -la proj
 
       - uses: actions/setup-java@v4
         with:
@@ -31,7 +28,7 @@ jobs:
           java-version: 17
 
       - name: Download Persian font (Vazirmatn)
-        working-directory: ${{ steps.locate.outputs.dir }}
+        working-directory: proj
         run: |
           mkdir -p app/src/main/assets/fonts
           for w in Regular Bold; do
@@ -39,17 +36,16 @@ jobs:
               https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/ttf/Vazirmatn-$w.ttf \
               || rm -f app/src/main/assets/fonts/Vazirmatn-$w.ttf
           done
-          ls -la app/src/main/assets/fonts || true
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
 
-      - name: Build debug APK
-        working-directory: ${{ steps.locate.outputs.dir }}
-        run: gradle assembleDebug --no-daemon --stacktrace
+      - name: Build signed release APK
+        working-directory: proj
+        run: gradle assembleRelease --no-daemon --stacktrace
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ShopManager-APK
-          path: ${{ steps.locate.outputs.dir }}/app/build/outputs/apk/debug/*.apk
+          name: APK
+          path: proj/app/build/outputs/apk/release/*.apk
